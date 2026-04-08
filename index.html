@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OCHA Humanitarian DataViz — Dashboard Editor (Beta)</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Condensed:wght@400;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css" />
+
+  <!-- Export libraries: html2canvas rasterizes the dashboard, jsPDF wraps it as a PDF -->
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js" defer></script>
+
+  <!-- Chart engine (temporary fork of the plugin's chart files) -->
+  <script src="charts/chart-registry.js" defer></script>
+  <script src="charts/chart-hbar.js" defer></script>
+  <script src="charts/chart-vbar.js" defer></script>
+  <script src="charts/chart-stacked-bar.js" defer></script>
+  <script src="charts/chart-stacked-col.js" defer></script>
+  <script src="charts/chart-line.js" defer></script>
+  <script src="charts/chart-donut.js" defer></script>
+  <script src="charts/chart-pie.js" defer></script>
+  <script src="charts/chart-bubble.js" defer></script>
+  <script src="charts/chart-sankey.js" defer></script>
+  <script src="charts/chart-icon.js" defer></script>
+  <script src="charts/chart-table.js" defer></script>
+  <script src="charts/chart-keyfigures.js" defer></script>
+
+  <!-- App modules -->
+  <script src="app/dashboard-model.js" defer></script>
+  <script src="app/csv-parser.js" defer></script>
+  <script src="app/dashboard-renderer.js" defer></script>
+  <script src="app/sample-data.js" defer></script>
+  <script src="app/exporter.js" defer></script>
+  <script src="app/share-link.js" defer></script>
+  <script src="app/table-editor.js" defer></script>
+  <script src="app/main.js" defer></script>
+</head>
+<body>
+  <div class="app">
+    <div class="topbar">
+      <div class="topbar-left">
+        <button class="btn icon sidebar-toggle" id="btn-sidebar-toggle" title="Hide sidebar" aria-label="Toggle sidebar">☰</button>
+        <div>
+          <h1>OCHA Humanitarian DataViz</h1>
+          <div class="subtitle">Dashboard editor &middot; Beta</div>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn" id="btn-auto-layout" title="Auto-arrange sections so each row fills the full dashboard width">Auto layout</button>
+        <button class="btn" id="btn-png" title="Download the dashboard as a PNG image">Download PNG</button>
+        <button class="btn" id="btn-share" title="Copy a shareable link that contains the whole dashboard">Share link</button>
+        <button class="btn primary" id="btn-pdf" title="Open the print preview to fit the dashboard on A4 and save as a vector PDF">Print / PDF…</button>
+      </div>
+    </div>
+
+    <aside class="sidebar">
+      <div>
+        <label for="title-input">Dashboard title</label>
+        <input id="title-input" type="text" placeholder="e.g. Yemen HNO 2026" />
+      </div>
+
+      <div>
+        <label for="style-select">Style</label>
+        <select id="style-select">
+          <option value="ocha">OCHA (Blue)</option>
+          <option value="hnrp">HNRP (Orange)</option>
+          <option value="flash">Flash Appeal (Red)</option>
+          <option value="gho">GHO (Gold)</option>
+        </select>
+      </div>
+
+      <div>
+        <label>Dashboard footer</label>
+        <div class="footer-editor">
+          <div class="footer-toolbar" role="toolbar" aria-label="Footer formatting">
+            <button type="button" class="footer-tool" data-cmd="bold" title="Bold (Ctrl/Cmd+B)"><strong>B</strong></button>
+            <button type="button" class="footer-tool" data-cmd="link" title="Add or edit link">🔗 Link</button>
+            <button type="button" class="footer-tool" data-cmd="unlink" title="Remove link">⛓ Unlink</button>
+          </div>
+          <div id="footer-input" class="footer-input" contenteditable="true" data-placeholder="e.g. Source: OCHA · Read more · Updated April 2026"></div>
+        </div>
+      </div>
+
+      <div id="messages" class="messages"></div>
+
+      <p class="hint">
+        <strong>Tip:</strong> click any chart on the canvas to edit its title, type, and data in a side panel.
+      </p>
+
+      <div id="csv-collapsible" class="collapsible">
+        <div class="collapsible-header">
+          <span>CSV source &middot; bulk import</span>
+          <span class="chev">›</span>
+        </div>
+        <div class="collapsible-body">
+          <p class="hint" style="margin-top:0">
+            Paste your data here for bulk import. Use Copilot with the
+            <a href="app/copilot-prompt.md" target="_blank" rel="noopener">data-prep prompt</a>
+            to reshape any spreadsheet into this format.
+          </p>
+          <textarea id="csv-input" spellcheck="false" placeholder="Paste your CSV here…"></textarea>
+        </div>
+      </div>
+    </aside>
+
+    <main class="preview" id="preview">
+      <div id="preview-mount">
+        <div class="empty-state">Loading sample dashboard…</div>
+      </div>
+    </main>
+
+    <aside id="inspector" class="inspector"></aside>
+
+    <button class="fab-add" id="fab-add" title="Add a new section" aria-label="Add section">+</button>
+    <div class="fab-menu" id="fab-menu" role="menu">
+      <div class="fab-menu-section">Add a new section</div>
+      <button class="fab-menu-item" data-add-section="empty">      <span class="fab-menu-icon">⊞</span> Empty section</button>
+      <button class="fab-menu-item" data-add-section="text">       <span class="fab-menu-icon">¶</span> Section with text</button>
+      <div class="fab-menu-section">Or with one chart inside</div>
+      <button class="fab-menu-item" data-add-section-chart="hbar">      <span class="fab-menu-icon">▭</span> Bar chart</button>
+      <button class="fab-menu-item" data-add-section-chart="vbar">      <span class="fab-menu-icon">▮</span> Column chart</button>
+      <button class="fab-menu-item" data-add-section-chart="stacked-bar"><span class="fab-menu-icon">▤</span> Stacked bar</button>
+      <button class="fab-menu-item" data-add-section-chart="stacked-col"><span class="fab-menu-icon">▦</span> Stacked column</button>
+      <button class="fab-menu-item" data-add-section-chart="line">      <span class="fab-menu-icon">∿</span> Line</button>
+      <button class="fab-menu-item" data-add-section-chart="donut">     <span class="fab-menu-icon">◯</span> Donut</button>
+      <button class="fab-menu-item" data-add-section-chart="pie">       <span class="fab-menu-icon">◐</span> Pie</button>
+      <button class="fab-menu-item" data-add-section-chart="bubble">    <span class="fab-menu-icon">●</span> Bubble</button>
+      <button class="fab-menu-item" data-add-section-chart="icon">      <span class="fab-menu-icon">⚑</span> Pictogram</button>
+      <button class="fab-menu-item" data-add-section-chart="table">     <span class="fab-menu-icon">▦</span> Table</button>
+      <button class="fab-menu-item" data-add-section-chart="sankey">    <span class="fab-menu-icon">⇆</span> Sankey</button>
+    </div>
+  </div>
+</body>
+</html>

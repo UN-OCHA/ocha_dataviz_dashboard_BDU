@@ -1,0 +1,1164 @@
+/* OCHA Humanitarian DataViz — online tool styles.
+ *
+ * Architecture:
+ *   - The dashboard is a responsive 12-column grid of SECTION CARDS.
+ *   - Each section card contains a title, optional text, and an inner sub-
+ *     grid of charts. Section span = sum of internal chart spans (capped at
+ *     12) so the card sizes itself to its content.
+ *   - The page grid uses grid-auto-flow: dense to pack sections together.
+ *   - Container queries reflow the dashboard from 12 → 6 → 1 columns when
+ *     the dashboard's container narrows.
+ *   - Per-block min-widths keep charts readable when reflowed.
+ *   - PDF/print exports auto-paginate the same DOM into A4 landscape pages.
+ */
+
+:root {
+  --ocha-blue: #009EDB;
+  --ocha-blue-dark: #005B8F;
+  --hnrp-orange: #F58220;
+  --flash-red: #ED1847;
+  --gho-gold: #FFC800;
+  --bg: #F4F6F8;
+  --surface: #FFFFFF;
+  --border: #E1E4E8;
+  --text: #1F2328;
+  --text-muted: #57606A;
+  --radius: 8px;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --font-sans: "Roboto", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-condensed: "Roboto Condensed", "Roboto", sans-serif;
+
+  --grid-gap: 16px;
+  --page-pad: 24px;
+  --row-unit: 4px;   /* fine row unit for masonry packing */
+
+  /* Per-block minimum widths (px). The grid reflows when blocks can't
+   * fit at their declared span without dropping below these. */
+  --min-kpi: 160px;
+  --min-narrow: 220px;
+  --min-mid:    320px;
+  --min-wide:   460px;
+  --min-text:   240px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ── Editor shell ─────────────────────────────────── */
+
+.app {
+  display: grid;
+  grid-template-columns: 320px 1fr 0;
+  grid-template-rows: auto 1fr;
+  grid-template-areas:
+    "topbar topbar topbar"
+    "sidebar preview inspector";
+  height: 100vh;
+  overflow: hidden;
+  transition: grid-template-columns 0.18s ease;
+}
+.app.inspector-open {
+  grid-template-columns: 320px 1fr 360px;
+}
+.app.sidebar-collapsed {
+  grid-template-columns: 0 1fr 0;
+}
+.app.sidebar-collapsed.inspector-open {
+  grid-template-columns: 0 1fr 360px;
+}
+.app.sidebar-collapsed .sidebar { display: none; }
+
+.topbar {
+  grid-area: topbar;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.sidebar-toggle {
+  font-size: 16px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.topbar h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ocha-blue);
+}
+.topbar .subtitle { font-size: 12px; color: var(--text-muted); }
+.topbar-actions { display: flex; gap: 8px; }
+
+.btn {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.btn:hover { background: #F6F8FA; }
+.btn.primary {
+  background: var(--ocha-blue);
+  color: white;
+  border-color: var(--ocha-blue);
+}
+.btn.primary:hover { background: var(--ocha-blue-dark); border-color: var(--ocha-blue-dark); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn.small {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.btn.icon {
+  padding: 4px 8px;
+  font-size: 13px;
+  line-height: 1;
+}
+.btn.danger {
+  border-color: #F5C2C7;
+  color: #8B1E28;
+}
+.btn.danger:hover { background: #FDECEA; }
+
+.sidebar {
+  grid-area: sidebar;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.sidebar label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  display: block;
+  margin-bottom: 4px;
+}
+.sidebar input[type="text"],
+.sidebar select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: inherit;
+  font-size: 13px;
+}
+.sidebar textarea {
+  width: 100%;
+  min-height: 220px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  resize: vertical;
+}
+.sidebar .hint { font-size: 12px; color: var(--text-muted); }
+.sidebar .hint a { color: var(--ocha-blue); }
+
+.collapsible-header {
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.collapsible-header .chev { transition: transform 0.15s; }
+.collapsible.open .chev { transform: rotate(90deg); }
+.collapsible-body { display: none; padding-top: 8px; }
+.collapsible.open .collapsible-body { display: block; }
+
+.messages {
+  font-size: 12px;
+  padding: 10px;
+  border-radius: var(--radius);
+  background: #FFF8E1;
+  border: 1px solid #F9E9A8;
+  color: #78572A;
+  display: none;
+}
+.messages.error { background: #FDECEA; border-color: #F5C2C7; color: #8B1E28; }
+.messages ul { margin: 6px 0 0; padding-left: 18px; }
+
+.preview {
+  grid-area: preview;
+  overflow: auto;
+  padding: 32px;
+}
+
+/* ── Inspector (right side panel) ───────────────── */
+
+.inspector {
+  grid-area: inspector;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  display: none;
+  flex-direction: column;
+}
+.app.inspector-open .inspector { display: flex; }
+
+.inspector-head {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.inspector-head h2 {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text);
+}
+.inspector-head .subtle {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.inspector-body {
+  padding: 16px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.inspector-body label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  display: block;
+  margin-bottom: 4px;
+}
+.inspector-body input[type="text"],
+.inspector-body select {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+/* Collapsible chart options section in the chart inspector */
+.chart-options {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #FAFBFC;
+  margin-top: 4px;
+}
+.chart-options > summary {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  list-style: none;
+  user-select: none;
+  position: relative;
+}
+.chart-options > summary::-webkit-details-marker { display: none; }
+.chart-options > summary::after {
+  content: "›";
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 16px;
+  line-height: 1;
+  transition: transform 0.15s;
+}
+.chart-options[open] > summary::after { transform: translateY(-50%) rotate(90deg); }
+.chart-options-body {
+  padding: 8px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+}
+.chart-options .opt-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.chart-options .opt-row > label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.chart-options .opt-row input[type="text"],
+.chart-options .opt-row select {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 12px;
+  background: var(--surface);
+}
+.chart-options .opt-slider .opt-slider-inner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.chart-options .opt-slider input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  accent-color: var(--ocha-blue);
+}
+.chart-options .opt-slider .opt-slider-value {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  min-width: 36px;
+  text-align: right;
+}
+
+/* Visual 12-column picker (used in inspector for span selection) */
+.col-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.col-picker-track {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 2px;
+  background: #F0F2F4;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  height: 28px;
+}
+.col-picker-cell {
+  border: none;
+  padding: 0;
+  background: var(--surface);
+  cursor: pointer;
+  border-radius: 2px;
+  transition: background 0.06s;
+}
+.col-picker-cell:hover { background: rgba(0,158,219,0.18); }
+.col-picker-cell.on   { background: var(--ocha-blue); }
+.col-picker-cell.current { box-shadow: inset 0 0 0 1px rgba(0,0,0,0.1); }
+.col-picker-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Checkbox row used for "Hide section title" etc. */
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  color: var(--text);
+}
+.checkbox-row input { margin: 0; }
+
+/* Spreadsheet-style table editor */
+.table-editor {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.table-editor table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.table-editor th {
+  background: #F6F8FA;
+  text-align: left;
+  font-weight: 600;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.table-editor td {
+  padding: 0;
+  border-bottom: 1px solid #F0F2F4;
+  position: relative;
+}
+.table-editor tr:last-child td { border-bottom: none; }
+.table-editor input {
+  width: 100%;
+  border: none;
+  padding: 7px 8px;
+  font-family: inherit;
+  font-size: 12px;
+  background: transparent;
+  outline: none;
+}
+.table-editor input:focus { background: #FFF8E1; }
+.table-editor td.cell-num input { text-align: right; font-variant-numeric: tabular-nums; }
+.table-editor td.cell-actions {
+  width: 28px;
+  text-align: center;
+}
+.table-editor .row-del {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px;
+  line-height: 1;
+}
+.table-editor .row-del:hover { color: #8B1E28; }
+.table-editor .add-row {
+  width: 100%;
+  background: #FAFBFC;
+  border: none;
+  border-top: 1px solid var(--border);
+  padding: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: inherit;
+}
+.table-editor .add-row:hover { background: #F0F2F4; color: var(--text); }
+
+/* ── Dashboard (responsive 12-col grid of section cards) ── */
+
+.dashboard {
+  max-width: 1400px;
+  margin: 0 auto;
+  background: var(--surface);
+  border-radius: 0;
+  box-shadow: var(--shadow);
+  padding: var(--page-pad);
+  container-type: inline-size;
+  container-name: dashboard;
+}
+
+.dashboard-header {
+  border-bottom: 3px solid var(--ocha-blue);
+  padding-bottom: 12px;
+  margin-bottom: 18px;
+}
+.dashboard-header h1 {
+  margin: 0;
+  font-family: var(--font-condensed);
+  font-size: 24px;
+  color: var(--text);
+}
+.dashboard-style-hnrp  .dashboard-header { border-bottom-color: var(--hnrp-orange); }
+.dashboard-style-flash .dashboard-header { border-bottom-color: var(--flash-red); }
+.dashboard-style-gho   .dashboard-header { border-bottom-color: var(--gho-gold); }
+
+/* Export mode — applied to a cloned dashboard for PDF / PNG / print preview.
+   Strips every editor-only chrome (arrows, add buttons, hover outlines, FAB)
+   so the printed output shows ONLY the dashboard content. */
+.dashboard.export-mode .card-arrows,
+.dashboard.export-mode .section-add-chart,
+.dashboard.export-mode .section-resize,
+.dashboard.export-mode .fab-add,
+.dashboard.export-mode .fab-menu,
+.dashboard.export-mode .card-index {
+  display: none !important;
+}
+.dashboard.export-mode .chart-card,
+.dashboard.export-mode .section-card,
+.dashboard.export-mode .kpi-row {
+  cursor: default !important;
+}
+.dashboard.export-mode .chart-card:hover,
+.dashboard.export-mode .section-card:hover,
+.dashboard.export-mode .kpi-row:hover {
+  background: transparent !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+.dashboard.export-mode .selected,
+.dashboard.export-mode .chart-card.selected,
+.dashboard.export-mode .section-card.selected {
+  background: transparent !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Sidebar footer editor (contenteditable + tiny formatting toolbar) */
+.footer-editor {
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.footer-toolbar {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-bottom: 1px solid var(--border);
+  background: #f6f7f9;
+}
+.footer-tool {
+  background: white;
+  border: 1px solid var(--border);
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 8px;
+  cursor: pointer;
+  color: var(--text);
+  line-height: 1.3;
+}
+.footer-tool:hover { background: #eef2f6; }
+.footer-tool:active { background: #e2e8ef; }
+.footer-tool strong { font-weight: 700; }
+.footer-input {
+  min-height: 70px;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  outline: none;
+  word-wrap: break-word;
+}
+.footer-input:focus {
+  background: #fafcff;
+}
+.footer-input:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.footer-input a {
+  color: var(--ocha-blue);
+  text-decoration: underline;
+}
+
+/* Dashboard-level footer (bottom of the rendered output) */
+.dashboard-footer {
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.dashboard-footer a {
+  color: var(--ocha-blue);
+  text-decoration: underline;
+}
+.dashboard-footer a:hover { color: var(--ocha-blue-dark); }
+.dashboard-footer strong { color: var(--text); }
+.dashboard-style-hnrp  .dashboard-footer a { color: var(--hnrp-orange); }
+.dashboard-style-flash .dashboard-footer a { color: var(--flash-red); }
+.dashboard-style-gho   .dashboard-footer a { color: #C49A00; }
+
+.page-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: var(--grid-gap);
+  /* Sections in the same row stretch to match the tallest sibling, so
+     the grid always reads as neat equal-height rows. Width changes DO
+     NOT make a section taller — paintChart() locks every chart's SVG
+     height in pixels based on its content, so resizing a section wider
+     only changes its width, not the height the row has to match. */
+  align-items: stretch;
+}
+
+/* Span classes — declared widths on the 12-col grid */
+.span-1  { grid-column: span 1;  }
+.span-2  { grid-column: span 2;  }
+.span-3  { grid-column: span 3;  }
+.span-4  { grid-column: span 4;  }
+.span-5  { grid-column: span 5;  }
+.span-6  { grid-column: span 6;  }
+.span-7  { grid-column: span 7;  }
+.span-8  { grid-column: span 8;  }
+.span-9  { grid-column: span 9;  }
+.span-10 { grid-column: span 10; }
+.span-11 { grid-column: span 11; }
+.span-12 { grid-column: span 12; }
+
+/* Container-query reflow */
+@container dashboard (max-width: 900px) {
+  .page-grid { grid-template-columns: repeat(6, 1fr); }
+  .span-7, .span-8, .span-9, .span-10, .span-11, .span-12 { grid-column: span 6; }
+  .span-5, .span-6 { grid-column: span 6; }
+  .span-3, .span-4 { grid-column: span 3; }
+  .span-1, .span-2 { grid-column: span 2; }
+}
+@container dashboard (max-width: 560px) {
+  .page-grid { grid-template-columns: 1fr; }
+  .span-1, .span-2, .span-3, .span-4, .span-5, .span-6,
+  .span-7, .span-8, .span-9, .span-10, .span-11, .span-12 { grid-column: span 1; }
+}
+
+/* KPI row */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--min-kpi), 1fr));
+  gap: var(--grid-gap);
+}
+.kpi-row {
+  cursor: pointer;
+  border-radius: var(--radius);
+  padding: 4px;
+  margin: -4px;
+  transition: box-shadow 0.12s, background 0.12s;
+}
+.kpi-row:hover { background: rgba(0,158,219,0.04); }
+.kpi-row.selected {
+  box-shadow: 0 0 0 2px rgba(0,158,219,0.45);
+  background: rgba(0,158,219,0.05);
+}
+.kpi-card {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 17px 16px 14px;
+  min-width: 0;
+}
+/* Real element for the colored top bar (html2canvas can't render
+   `box-shadow: inset` so we use a child element instead). */
+.kpi-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--ocha-blue);
+}
+.kpi-value {
+  font-family: var(--font-condensed);
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.1;
+  margin-bottom: 4px;
+}
+.kpi-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+/* Per-style accent colors are applied inline on the .kpi-bar element by
+   the renderer (uses the style's primary color). No CSS overrides needed. */
+
+/* Section cards — top-level row-aligned grid items */
+.section-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 16px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;            /* hard guard: nothing inside can escape */
+  word-wrap: break-word;       /* break long words instead of overflowing */
+  overflow-wrap: break-word;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+/* ── UNIVERSAL CONTAINMENT ───────────────────────────────
+ * Every element inside a section-card (titles, text blocks, chart cards,
+ * SVGs, images, buttons, etc.) is constrained to the section's content
+ * width. Combined with overflow: hidden on .section-card itself, this
+ * guarantees that no chart, label, divider, or media can ever escape.
+ */
+.section-card *,
+.section-card *::before,
+.section-card *::after {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+}
+.section-card svg,
+.section-card img,
+.section-card video,
+.section-card canvas,
+.section-card iframe {
+  max-width: 100%;
+  height: auto;
+}
+.section-card pre,
+.section-card code {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.section-card:hover { border-color: rgba(0,158,219,0.4); }
+.section-card.selected {
+  border-color: var(--ocha-blue);
+  box-shadow: 0 0 0 2px rgba(0,158,219,0.25);
+}
+
+.section-head {
+  cursor: pointer;
+  padding-bottom: 6px;
+  border-bottom: 2px solid rgba(0,158,219,0.35);
+}
+.dashboard-style-hnrp  .section-head { border-bottom-color: rgba(245,130,32,0.4); }
+.dashboard-style-flash .section-head { border-bottom-color: rgba(237,24,71,0.4); }
+.dashboard-style-gho   .section-head { border-bottom-color: rgba(255,200,0,0.5); }
+
+.section-title {
+  margin: 0;
+  font-family: var(--font-condensed);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text);
+  text-align: left;
+}
+
+.section-text-block {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.section-text-block:hover { color: var(--text); }
+
+.section-charts {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+/* Default divider line between adjacent charts inside a section.
+ * Uses box-sizing: border-box and width: 100% so the line can never
+ * extend past the section-charts container, regardless of what the chart
+ * content does. The parent .section-card also has overflow: hidden as a
+ * second safety net. */
+.section-charts > .chart-card + .chart-card {
+  border-top: 1px solid var(--border);
+  margin-top: 12px;
+  padding-top: 12px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Chart cards live INSIDE a section-card — no own border */
+.chart-card {
+  background: transparent;
+  border: none;
+  padding: 0;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+  position: relative;
+  border-radius: 0;
+  transition: background 0.12s, outline-color 0.12s;
+  outline: 1px solid transparent;
+}
+.chart-card:hover { background: rgba(0,158,219,0.04); }
+.chart-card.selected {
+  background: rgba(0,158,219,0.06);
+  outline-color: rgba(0,158,219,0.45);
+}
+.chart-card svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  overflow: hidden;             /* never let chart content escape the card */
+}
+.chart-svg-holder { overflow: hidden; }
+.chart-svg-holder { min-width: 0; }
+
+/* Chart title — left-aligned HTML heading at the top of each chart */
+.chart-title {
+  margin: 0;
+  font-family: var(--font-condensed);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  text-align: left;
+  line-height: 1.25;
+  padding: 2px 4px 4px;
+}
+
+/* "Add chart to this section" button — sits at the bottom of every section */
+.section-add-chart {
+  margin-top: auto;
+  padding: 8px;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.section-add-chart:hover {
+  border-color: var(--ocha-blue);
+  color: var(--ocha-blue);
+  background: rgba(0,158,219,0.05);
+}
+
+/* Section right-edge resize handle. Drag it to change a section's column
+   span (1-12) without opening the inspector. Only visible when the user
+   hovers the section card. */
+.section-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 18px;
+  bottom: 0;
+  cursor: ew-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.12s;
+  z-index: 5;
+  user-select: none;
+}
+.section-card:hover .section-resize,
+.section-card.section-resizing .section-resize {
+  opacity: 1;
+}
+.section-resize-grip {
+  width: 4px;
+  height: 40px;
+  background: var(--ocha-blue);
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.9);
+  transition: height 0.12s, background 0.12s;
+}
+.section-resize:hover .section-resize-grip,
+.section-card.section-resizing .section-resize-grip {
+  background: var(--ocha-blue-dark);
+  height: 64px;
+}
+/* The badge floats at the bottom-right CORNER of the section card itself
+   (not inside the narrow .section-resize column), so it has plenty of room
+   to grow without ever clipping against the card's overflow:hidden. */
+.section-card > .section-resize-badge {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  background: var(--ocha-blue);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 2px;
+  pointer-events: none;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.12s, transform 0.12s;
+  z-index: 6;
+}
+.section-card:hover > .section-resize-badge,
+.section-card.section-resizing > .section-resize-badge {
+  opacity: 1;
+  transform: translateY(0);
+}
+.section-resize-badge .badge-arrow {
+  display: inline-block;
+  opacity: 0.85;
+  font-weight: 400;
+  padding: 0 1px;
+}
+.section-resize-badge .badge-value {
+  display: inline-block;
+  margin: 0 6px;
+  font-variant-numeric: tabular-nums;
+}
+/* While dragging, lock the cursor and disable text selection across the
+   whole document so the drag feels solid. */
+body.section-resizing,
+body.section-resizing * {
+  cursor: ew-resize !important;
+  user-select: none !important;
+}
+
+/* Inspector chart list */
+.section-chart-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+.section-chart-row {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #FAFBFC;
+}
+.section-chart-row .muted { color: var(--text-muted); }
+.section-chart-row .small { font-size: 11px; }
+
+/* Reorder arrows on each card (visible on hover) */
+.card-arrows {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.12s;
+  pointer-events: none;
+  z-index: 2;
+}
+.chart-card:hover > .card-arrows,
+.chart-card.selected > .card-arrows,
+.section-card:hover > .card-arrows,
+.section-card.selected > .card-arrows {
+  opacity: 1;
+  pointer-events: auto;
+}
+.card-arrow {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.94);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-family: inherit;
+}
+.card-arrow:hover {
+  background: var(--ocha-blue);
+  color: white;
+  border-color: var(--ocha-blue);
+}
+.card-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  background: var(--ocha-blue);
+  color: white;
+  border-radius: 4px;
+  font-family: var(--font-condensed);
+}
+
+/* Floating + button (bottom right of preview) */
+.fab-add {
+  position: fixed;
+  right: 28px;
+  bottom: 28px;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--ocha-blue);
+  color: white;
+  border: none;
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.18);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s, background 0.15s;
+}
+.fab-add:hover { background: var(--ocha-blue-dark); transform: translateY(-2px); }
+.fab-add.open { transform: rotate(45deg); }
+.app.inspector-open .fab-add { right: 388px; } /* shift left when inspector is open */
+
+.fab-menu {
+  position: fixed;
+  right: 28px;
+  bottom: 92px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.14);
+  padding: 8px;
+  z-index: 50;
+  display: none;
+  min-width: 200px;
+}
+.fab-menu.open { display: block; }
+.app.inspector-open .fab-menu { right: 388px; }
+.fab-menu-section {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  padding: 6px 10px 4px;
+}
+.fab-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  border-radius: 4px;
+}
+.fab-menu-item:hover { background: #F0F4F8; color: var(--ocha-blue); }
+.fab-menu-icon {
+  display: inline-block;
+  width: 18px;
+  text-align: center;
+  margin-right: 8px;
+  color: var(--text-muted);
+}
+
+/* Per-type minimum widths so blocks stay readable when reflowed. */
+.chart-type-donut, .chart-type-pie,
+.chart-type-vbar, .chart-type-stacked-col { min-width: var(--min-narrow); }
+.chart-type-hbar,
+.chart-type-stacked-bar,
+.chart-type-bubble, .chart-type-icon      { min-width: var(--min-mid); }
+.chart-type-line, .chart-type-sankey,
+.chart-type-table                         { min-width: var(--min-wide); }
+.chart-type-text                          { min-width: var(--min-text); }
+
+.chart-error {
+  padding: 12px;
+  background: #FDECEA;
+  border-radius: 4px;
+  color: #8B1E28;
+  font-size: 12px;
+}
+.chart-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+/* ── Empty state ──────────────────────────────── */
+
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 320px;
+  color: var(--text-muted);
+  font-size: 14px;
+  text-align: center;
+  padding: 40px;
+}
+
+/* ── Print: native A4 landscape pagination ──────── */
+
+@media print {
+  @page { size: A4 landscape; margin: 10mm; }
+
+  html, body {
+    background: white !important;
+    margin: 0;
+    padding: 0;
+  }
+  .topbar, .sidebar, .inspector { display: none !important; }
+  .app {
+    display: block;
+    height: auto;
+    overflow: visible;
+  }
+  .preview {
+    padding: 0;
+    overflow: visible;
+  }
+  .dashboard {
+    max-width: 100%;
+    box-shadow: none;
+    border-radius: 0;
+    padding: 0;
+    background: white;
+  }
+  .chart-card, .section-card, .kpi-row, .kpi-card, .section-header, .section-text-block {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .section-header, .dashboard-header {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+  .chart-card { outline: none !important; }
+}
+
+/* ── Responsive editor shell ─────────────────────── */
+
+@media (max-width: 1100px) {
+  .preview { padding: 16px; }
+}
+@media (max-width: 900px) {
+  .app, .app.inspector-open {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "topbar"
+      "sidebar"
+      "preview"
+      "inspector";
+    height: auto;
+    overflow: auto;
+  }
+  .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  .inspector { border-left: none; border-top: 1px solid var(--border); }
+}
