@@ -159,6 +159,11 @@ var TableEditor = (function () {
         wrap.appendChild(buildTable(chart, ctx));
       }));
 
+      // ── Per-row icons / flags (chart types that support them) ──
+      if (chartSupportsRowIcons(chart.type)) {
+        body.appendChild(buildRowIconSection(chart, ctx));
+      }
+
       // ── Chart options (collapsible) ────────────
       body.appendChild(buildChartOptions(chart, ctx));
     }
@@ -346,6 +351,128 @@ var TableEditor = (function () {
   // Universal fields for every chart type, plus per-type fields. Each
   // field reads/writes chart.config in place and triggers a re-render
   // through ctx.onChange().
+  // Which chart types render an inline icon column? The chart engine
+  // already supports this via config.iconColType + per-row _iconSvg.
+  function chartSupportsRowIcons(type) {
+    return type === "hbar" || type === "vbar" ||
+           type === "stacked-bar" || type === "stacked-col" ||
+           type === "icon";
+  }
+
+  // Build the "Icons / flags" section of the chart inspector. Lets the
+  // user pick the icon column mode (off / icons / flags) and, for each
+  // data row, attach a specific humanitarian icon or country flag.
+  //
+  // Storage shape in the dashboard JSON:
+  //   chart.config.iconColType = "none" | "icons" | "flags"
+  //   data[i].iconKey  = "Abduction-kidnapping"  (when icons)
+  //   data[i].flagCode = "AFG"                   (when flags)
+  // The raw _iconSvg is injected by the renderer at paint time.
+  function buildRowIconSection(chart, ctx) {
+    var wrap = document.createElement("div");
+
+    var lbl = document.createElement("label");
+    lbl.textContent = "Icons / flags";
+    wrap.appendChild(lbl);
+
+    chart.config = chart.config || {};
+    var current = chart.config.iconColType || "none";
+
+    // Mode selector
+    var modeRow = document.createElement("div");
+    modeRow.style.display = "flex";
+    modeRow.style.gap = "6px";
+    modeRow.style.marginBottom = "8px";
+    ["none", "icons", "flags"].forEach(function (m) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "btn" + (current === m ? " primary" : "");
+      b.style.flex = "1 1 0";
+      b.textContent = m === "none" ? "None" : (m === "icons" ? "Icons" : "Flags");
+      b.addEventListener("click", function () {
+        chart.config.iconColType = m;
+        ctx.onChange();
+        // Re-render just this section
+        var next = buildRowIconSection(chart, ctx);
+        wrap.parentNode.replaceChild(next, wrap);
+      });
+      modeRow.appendChild(b);
+    });
+    wrap.appendChild(modeRow);
+
+    if (current === "none") {
+      var hint = document.createElement("p");
+      hint.className = "hint";
+      hint.style.margin = "4px 0 0";
+      hint.textContent = "Turn on icons or flags to show a small image next to each row.";
+      wrap.appendChild(hint);
+      return wrap;
+    }
+
+    // Per-row pickers
+    var data = chart.data || [];
+    if (data.length === 0) {
+      var empty = document.createElement("p");
+      empty.className = "hint";
+      empty.textContent = "Add data rows above to attach icons to them.";
+      wrap.appendChild(empty);
+      return wrap;
+    }
+
+    // For stacked charts the same label repeats across multiple rows
+    // (one per series). Deduplicate by label so the user picks an icon
+    // once per label, not per series.
+    var isStacked = chart.type === "stacked-bar" || chart.type === "stacked-col";
+    var seen = {};
+    var labelRows = [];
+    data.forEach(function (row, i) {
+      var key = row.label || ("Row " + (i + 1));
+      if (isStacked && seen[key]) return;
+      seen[key] = true;
+      labelRows.push({ label: key, firstIndex: i });
+    });
+
+    labelRows.forEach(function (row) {
+      var rowWrap = document.createElement("div");
+      rowWrap.style.marginBottom = "8px";
+
+      var rowLabel = document.createElement("div");
+      rowLabel.className = "hint";
+      rowLabel.style.margin = "0 0 4px";
+      rowLabel.textContent = row.label;
+      rowWrap.appendChild(rowLabel);
+
+      var d0 = data[row.firstIndex];
+      var currentKey = current === "flags" ? (d0.flagCode || null) : (d0.iconKey || null);
+
+      var picker = IconPicker.create({
+        mode: current === "flags" ? "flag" : "icon",
+        current: currentKey,
+        onPick: function (key) {
+          // Write to every data row that shares this label (handles stacked)
+          data.forEach(function (r) {
+            if ((r.label || "") === row.label) {
+              if (current === "flags") r.flagCode = key; else r.iconKey = key;
+            }
+          });
+          ctx.onChange();
+        },
+        onClear: function () {
+          data.forEach(function (r) {
+            if ((r.label || "") === row.label) {
+              if (current === "flags") delete r.flagCode; else delete r.iconKey;
+            }
+          });
+          ctx.onChange();
+        }
+      });
+      rowWrap.appendChild(picker.element);
+      wrap.appendChild(rowWrap);
+    });
+
+    return wrap;
+  }
+
   function buildChartOptions(chart, ctx) {
     chart.config = chart.config || {};
     var details = document.createElement("details");
@@ -558,6 +685,39 @@ var TableEditor = (function () {
 
     body.appendChild(field("Top-of-dashboard key figures", function (wrap) {
       wrap.appendChild(buildKpiTable(d, ctx));
+    }));
+
+    // Per-KPI icon picker(s) — each KPI card can show a humanitarian icon
+    // next to its number. Uses the shared IconPicker component.
+    body.appendChild(field("Icons (optional)", function (wrap) {
+      var hint = document.createElement("p");
+      hint.className = "hint";
+      hint.style.margin = "0 0 8px";
+      hint.textContent = "Choose an icon to display on each key figure card.";
+      wrap.appendChild(hint);
+      d.keyFigures.forEach(function (kpi, idx) {
+        var row = document.createElement("div");
+        row.style.marginBottom = "8px";
+        var label = document.createElement("div");
+        label.className = "hint";
+        label.style.margin = "0 0 4px";
+        label.textContent = (kpi.label || "Key figure " + (idx + 1));
+        row.appendChild(label);
+        var picker = IconPicker.create({
+          mode: "icon",
+          current: kpi.iconKey || null,
+          onPick: function (key) {
+            kpi.iconKey = key;
+            ctx.onChange();
+          },
+          onClear: function () {
+            delete kpi.iconKey;
+            ctx.onChange();
+          }
+        });
+        row.appendChild(picker.element);
+        wrap.appendChild(row);
+      });
     }));
 
     container.querySelector("#te-close").addEventListener("click", function () {

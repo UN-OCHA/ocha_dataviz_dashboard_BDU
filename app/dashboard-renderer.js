@@ -106,16 +106,40 @@ var DashboardRenderer = (function () {
 
   // ── Data reshaping ──────────────────────────────────
 
-  function reshapeSingle(data) {
-    return data.map(function (d) { return { label: d.label, value: d.value }; });
+  // Resolve a row's stored iconKey / flagCode to actual SVG markup from
+  // the in-memory cache. Returns `_iconSvg` (raw svg string) which the
+  // chart engine already understands. Returns null if the icon hasn't
+  // been loaded yet — in that case the paint pass happens without the
+  // icon and a subsequent pass (after prefetch resolves) fills it in.
+  function resolveRowIcon(row, iconColType) {
+    if (!row) return null;
+    if (iconColType === "flags" && row.flagCode && typeof FlagLoader !== "undefined") {
+      return FlagLoader.getCachedSvg(row.flagCode);
+    }
+    if (iconColType === "icons" && row.iconKey && typeof IconLoader !== "undefined") {
+      return IconLoader.getCachedSvg(row.iconKey);
+    }
+    return null;
   }
 
-  function reshapeStacked(data) {
+  function reshapeSingle(data, iconColType) {
+    return data.map(function (d) {
+      var out = { label: d.label, value: d.value };
+      var svg = resolveRowIcon(d, iconColType);
+      if (svg) out._iconSvg = svg;
+      return out;
+    });
+  }
+
+  function reshapeStacked(data, iconColType) {
     var labels = [], labelIndex = {}, seriesNames = [], seriesIndex = {};
     data.forEach(function (d) {
       if (labelIndex[d.label] === undefined) {
         labelIndex[d.label] = labels.length;
-        labels.push({ label: d.label, values: [] });
+        var row = { label: d.label, values: [] };
+        var svg = resolveRowIcon(d, iconColType);
+        if (svg) row._iconSvg = svg;
+        labels.push(row);
       }
       var s = d.series || "Value";
       if (seriesIndex[s] === undefined) {
@@ -192,12 +216,13 @@ var DashboardRenderer = (function () {
     var data = chart.data || [];
     var shaped;
     var needsFixedBands = (chart.type === "vbar" || chart.type === "stacked-col");
+    var iconColType = config.iconColType || "none";
 
     // IMPORTANT: pass empty title — chart-card renders the title in HTML.
     var emptyTitle = "";
 
     if (chart.type === "stacked-bar" || chart.type === "stacked-col") {
-      shaped = reshapeStacked(data);
+      shaped = reshapeStacked(data, iconColType);
       config.seriesNames = shaped.seriesNames;
       if (needsFixedBands) {
         return withFixedBandScale(function () {
@@ -210,13 +235,28 @@ var DashboardRenderer = (function () {
       shaped = reshapeSankey(data);
       return R.render(chart.type, emptyTitle, shaped, config);
     }
-    shaped = reshapeSingle(data);
+    shaped = reshapeSingle(data, iconColType);
     if (needsFixedBands) {
       return withFixedBandScale(function () {
         return R.render(chart.type, emptyTitle, shaped, config);
       });
     }
     return R.render(chart.type, emptyTitle, shaped, config);
+  }
+
+  // Collect every icon/flag key a chart needs to paint, so callers can
+  // prefetch them before calling paintChart. Keeps icon resolution fully
+  // synchronous inside the render loop.
+  function collectChartAssetKeys(chart) {
+    var out = { icons: [], flags: [] };
+    if (!chart || !chart.config) return out;
+    var mode = chart.config.iconColType;
+    if (mode !== "icons" && mode !== "flags") return out;
+    (chart.data || []).forEach(function (row) {
+      if (mode === "flags" && row.flagCode) out.flags.push(row.flagCode);
+      if (mode === "icons" && row.iconKey)  out.icons.push(row.iconKey);
+    });
+    return out;
   }
 
   // ── KPI row ─────────────────────────────────────────
@@ -229,20 +269,64 @@ var DashboardRenderer = (function () {
     row.className = "kpi-row span-12 editable-kpi";
     row.setAttribute("data-kpi-row", "1");
 
+    // Collect icon keys we'll need to paint, and prefetch the ones that
+    // aren't in memory yet. When the prefetch resolves we mutate the
+    // already-inserted .kpi-icon elements in-place — no full re-render.
+    var missingIcons = [];
+    keyFigures.forEach(function (kpi) {
+      if (kpi.iconKey && typeof IconLoader !== "undefined" && !IconLoader.getCachedSvg(kpi.iconKey)) {
+        missingIcons.push(kpi.iconKey);
+      }
+    });
+
     keyFigures.forEach(function (kpi, idx) {
       var card = document.createElement("div");
       card.className = "kpi-card";
+      if (kpi.iconKey) card.classList.add("has-icon");
       card.setAttribute("data-kpi-index", String(idx));
+
+      // Resolve the icon SVG right now if it's cached, else leave an
+      // empty placeholder that the prefetch callback will fill in.
+      var iconHtml = "";
+      if (kpi.iconKey && typeof IconLoader !== "undefined") {
+        var cached = IconLoader.getCachedSvg(kpi.iconKey);
+        iconHtml = '<div class="kpi-icon" data-icon-key="' +
+          escapeHtml(kpi.iconKey) + '" style="color:' + accent + '">' +
+          (cached ? recolorSvg(cached, accent) : "") +
+          '</div>';
+      }
+
       // Real DOM element for the colored top bar — html2canvas mis-renders
       // CSS `box-shadow: inset` as a solid fill, so we use an actual <div>.
       card.innerHTML =
         '<div class="kpi-bar" style="background:' + accent + '"></div>' +
+        iconHtml +
         '<div class="kpi-value" style="color:' + accent + '">' +
         escapeHtml(formatKpi(kpi.value, kpi.unit)) + '</div>' +
         '<div class="kpi-label">' + escapeHtml(kpi.label) + '</div>';
       row.appendChild(card);
     });
+
+    if (missingIcons.length > 0) {
+      IconLoader.prefetch(missingIcons).then(function () {
+        row.querySelectorAll(".kpi-icon[data-icon-key]").forEach(function (el) {
+          var key = el.getAttribute("data-icon-key");
+          var svg = IconLoader.getCachedSvg(key);
+          if (svg && !el.firstChild) {
+            el.innerHTML = recolorSvg(svg, accent);
+          }
+        });
+      });
+    }
+
     return row;
+  }
+
+  // Rewrite the OCHA-blue reference colour in a humanitarian icon SVG to
+  // the current style accent, mirroring the plugin's icon-recolor step.
+  function recolorSvg(svg, accent) {
+    if (!svg || !accent) return svg;
+    return svg.replace(/#009[eE][dD][bB]/g, accent);
   }
 
   // ── Reorder arrows + duplicate button (visible on hover) ───
@@ -338,6 +422,33 @@ var DashboardRenderer = (function () {
 
   function paintChart(holder, chart, styleName, width) {
     if (width < 60) width = 60; // floor to avoid garbage SVGs
+
+    // Kick off a prefetch for any icons/flags this chart references but
+    // hasn't loaded yet. When they arrive, schedule a repaint at the
+    // current width. The first paint still runs now so the chart appears
+    // immediately (without icons), then icons fill in on the next pass.
+    var keys = collectChartAssetKeys(chart);
+    if (keys.icons.length > 0 && typeof IconLoader !== "undefined") {
+      var missing = keys.icons.filter(function (k) { return !IconLoader.getCachedSvg(k); });
+      if (missing.length > 0) {
+        IconLoader.prefetch(missing).then(function () {
+          if (holder.isConnected) {
+            paintChart(holder, chart, styleName, Math.floor(holder.getBoundingClientRect().width) || width);
+          }
+        });
+      }
+    }
+    if (keys.flags.length > 0 && typeof FlagLoader !== "undefined") {
+      var missingF = keys.flags.filter(function (k) { return !FlagLoader.getCachedSvg(k); });
+      if (missingF.length > 0) {
+        FlagLoader.prefetch(missingF).then(function () {
+          if (holder.isConnected) {
+            paintChart(holder, chart, styleName, Math.floor(holder.getBoundingClientRect().width) || width);
+          }
+        });
+      }
+    }
+
 
     // For aspect-locked types, cap the render width (never the holder
     // width) so the resulting square SVG stays the same size no matter
