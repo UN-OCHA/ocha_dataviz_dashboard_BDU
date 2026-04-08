@@ -245,7 +245,7 @@ var DashboardRenderer = (function () {
     return row;
   }
 
-  // ── Reorder arrows (visible on hover) ───────────────
+  // ── Reorder arrows + duplicate button (visible on hover) ───
   function makeArrows(direction, indexLabel) {
     var arrows = document.createElement("div");
     arrows.className = "card-arrows " + (direction === "horizontal" ? "arrows-h" : "arrows-v");
@@ -256,6 +256,7 @@ var DashboardRenderer = (function () {
       inner += '<span class="card-index">' + indexLabel + '</span>';
     }
     inner += '<button class="card-arrow" data-move="down" title="Move later">' + rightSym + '</button>';
+    inner += '<button class="card-arrow card-arrow-dup" data-action="duplicate" title="Duplicate">\u2398</button>';
     arrows.innerHTML = inner;
     return arrows;
   }
@@ -266,7 +267,8 @@ var DashboardRenderer = (function () {
   // breakpoint and lays out at native pixel sizes. A ResizeObserver
   // re-renders the chart whenever the card width changes, so charts
   // genuinely adapt to their container instead of being CSS-scaled.
-  function buildChartCard(chart, sectionSpan, styleName) {
+  function buildChartCard(chart, sectionSpan, styleName, chartSpan) {
+    if (chartSpan == null) chartSpan = 12;
     var card = document.createElement("div");
     card.className = "chart-card chart-type-" + chart.type;
     if (chart.id) card.setAttribute("data-chart-id", chart.id);
@@ -284,7 +286,9 @@ var DashboardRenderer = (function () {
       var pp = document.createElement("p");
       pp.className = "chart-text";
       pp.textContent = (chart.config && chart.config.text) || "";
-      card.appendChild(pp);
+      // text cards still get a resize handle so the user can pin a
+      // text-block alongside a chart in the same row.
+      card.appendChild(makeChartResize(chartSpan));
       return card;
     }
 
@@ -292,13 +296,29 @@ var DashboardRenderer = (function () {
     holder.className = "chart-svg-holder";
     card.appendChild(holder);
 
-    // First-pass render at a fallback width so the card has content while
-    // we wait for the DOM to settle. observeAndRender() will then re-render
-    // at the real measured width once the card is laid out.
-    paintChart(holder, chart, styleName, chartWidthForSpan(sectionSpan));
+    // Initial pixel width to render at: a rough estimate based on the
+    // section's column span × the chart's intra-section span. The
+    // ResizeObserver below re-renders at the real measured width once
+    // the card lays out for real.
+    var firstPassW = Math.round(chartWidthForSpan(sectionSpan) * (chartSpan / 12));
+    paintChart(holder, chart, styleName, firstPassW);
     observeAndRender(holder, chart, styleName);
 
+    // In-section resize handle (only meaningful when the section has more
+    // than one chart side-by-side, but cheap to render either way).
+    card.appendChild(makeChartResize(chartSpan));
+
     return card;
+  }
+
+  // Right-edge resize handle on a chart card. Mirrors the section-level
+  // handle but works against the parent .section-charts grid.
+  function makeChartResize(chartSpan) {
+    var resize = document.createElement("div");
+    resize.className = "chart-resize";
+    resize.title = "Drag to resize · " + chartSpan + " of 12";
+    resize.innerHTML = '<span class="chart-resize-grip" aria-hidden="true"></span>';
+    return resize;
   }
 
   // Render or re-render a chart's SVG inside the given holder at a target
@@ -487,7 +507,15 @@ var DashboardRenderer = (function () {
       var inner = document.createElement("div");
       inner.className = "section-charts";
       charts.forEach(function (chart) {
-        inner.appendChild(buildChartCard(chart, span, styleName));
+        // Each chart's intra-section span (1-12). Default 12 = full width,
+        // which preserves the previous "stack vertically" behaviour.
+        var chartSpan = (typeof chart.span === "number" && chart.span >= 1 && chart.span <= 12)
+          ? Math.round(chart.span)
+          : 12;
+        var cardEl = buildChartCard(chart, span, styleName, chartSpan);
+        cardEl.style.gridColumn = "span " + chartSpan;
+        cardEl.classList.add("chart-span-" + chartSpan);
+        inner.appendChild(cardEl);
       });
       card.appendChild(inner);
     }

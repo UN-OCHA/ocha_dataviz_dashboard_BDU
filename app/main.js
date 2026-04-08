@@ -188,16 +188,25 @@
 
     // Click handling: route to the right editor based on what was clicked.
     previewEl.addEventListener("click", function (ev) {
-      // 0a. Reorder arrow (chart-level OR section-level depending on host)
+      // 0a. Reorder arrow / duplicate button (chart-level OR section-level)
       var arrow = ev.target.closest(".card-arrow");
       if (arrow) {
-        var dir = arrow.getAttribute("data-move") === "up" ? -1 : 1;
+        var action = arrow.getAttribute("data-action");
         var chartHost = arrow.closest(".chart-card");
-        if (chartHost && chartHost.hasAttribute("data-chart-id")) {
-          handleChartReorder(chartHost, dir);
+        var sectionHost = chartHost ? null : arrow.closest(".section-card");
+        if (action === "duplicate") {
+          if (chartHost && chartHost.hasAttribute("data-chart-id")) {
+            handleChartDuplicate(chartHost);
+          } else if (sectionHost) {
+            handleSectionDuplicate(sectionHost);
+          }
         } else {
-          var sectionHost = arrow.closest(".section-card");
-          if (sectionHost) handleSectionReorder(sectionHost, dir);
+          var dir = arrow.getAttribute("data-move") === "up" ? -1 : 1;
+          if (chartHost && chartHost.hasAttribute("data-chart-id")) {
+            handleChartReorder(chartHost, dir);
+          } else if (sectionHost) {
+            handleSectionReorder(sectionHost, dir);
+          }
         }
         ev.stopPropagation();
         return;
@@ -251,17 +260,29 @@
     // grid's column step (column width + grid gap), update section.span on
     // the fly, and re-render. Releasing the pointer commits.
     previewEl.addEventListener("pointerdown", function (ev) {
-      var handle = ev.target.closest(".section-resize");
-      if (!handle) return;
-      ev.preventDefault();
-      ev.stopPropagation();
-
-      var sectionCard = handle.closest(".section-card");
-      if (!sectionCard || !currentDashboard) return;
-      var idx = parseInt(sectionCard.getAttribute("data-section-index"), 10);
-      if (isNaN(idx) || !currentDashboard.sections[idx]) return;
-
-      startSectionResize(idx, sectionCard, ev.clientX);
+      // Section-level handle
+      var sHandle = ev.target.closest(".section-resize");
+      if (sHandle) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        var sCard = sHandle.closest(".section-card");
+        if (!sCard || !currentDashboard) return;
+        var sIdx = parseInt(sCard.getAttribute("data-section-index"), 10);
+        if (isNaN(sIdx) || !currentDashboard.sections[sIdx]) return;
+        startSectionResize(sIdx, sCard, ev.clientX);
+        return;
+      }
+      // Chart-level handle (resize a chart's span inside .section-charts)
+      var cHandle = ev.target.closest(".chart-resize");
+      if (cHandle) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        var cCard = cHandle.closest(".chart-card[data-chart-id]");
+        if (!cCard || !currentDashboard) return;
+        var cId = cCard.getAttribute("data-chart-id");
+        if (!cId) return;
+        startChartResize(cId, cCard, ev.clientX);
+      }
     });
 
     // ── Floating + button to add new modules ─────────
@@ -301,6 +322,15 @@
     if (!chartId) return;
     DashboardModel.moveChartWithinSection(currentDashboard, chartId, direction);
     renderPreview();
+  }
+
+  function handleChartDuplicate(card) {
+    if (!currentDashboard || !card) return;
+    var chartId = card.getAttribute("data-chart-id");
+    if (!chartId) return;
+    var newId = DashboardModel.duplicateChart(currentDashboard, chartId);
+    renderPreview();
+    if (newId) selectChart(newId);
   }
 
   // Drag-resize a section's column span. We snap on grid column boundaries
@@ -391,12 +421,93 @@
     onMove({ clientX: startX });
   }
 
+  // Drag-resize a chart's intra-section column span. Reads the parent
+  // .section-charts grid metrics so the snap matches the rendered grid
+  // exactly. Mirrors startSectionResize but at the chart level.
+  function startChartResize(chartId, chartCard, startX) {
+    if (!currentDashboard) return;
+    var loc = DashboardModel.findChart(currentDashboard, chartId);
+    if (!loc) return;
+    var chart = loc.chart;
+
+    var grid = chartCard.parentNode;
+    if (!grid || !grid.classList.contains("section-charts")) return;
+
+    var gridRect = grid.getBoundingClientRect();
+    var cardRect = chartCard.getBoundingClientRect();
+    var styles = window.getComputedStyle(grid);
+    var cols = (styles.gridTemplateColumns || "").trim().split(/\s+/).length || 12;
+    var gapPx = parseFloat(styles.columnGap || styles.gap || "0") || 0;
+    var totalGap = gapPx * (cols - 1);
+    var colW = (gridRect.width - totalGap) / cols;
+    var stepW = colW + gapPx;
+
+    var leftOffsetPx = cardRect.left - gridRect.left;
+    var startCol = Math.max(0, Math.round(leftOffsetPx / stepW));
+    var maxSpan = cols - startCol;
+
+    var currentSpan = (typeof chart.span === "number") ? chart.span : 12;
+
+    chartCard.classList.add("chart-resizing");
+    document.body.classList.add("chart-resizing");
+
+    function onMove(e) {
+      var x = e.clientX != null ? e.clientX : (e.touches && e.touches[0].clientX);
+      if (x == null) return;
+      var gridX = x - gridRect.left;
+      var rightCol = Math.round((gridX + gapPx / 2) / stepW);
+      var span = rightCol - startCol;
+      span = Math.max(1, Math.min(maxSpan, span));
+      if (span === currentSpan) return;
+      currentSpan = span;
+      chart.span = span;
+      renderPreview();
+      // Re-find the card (re-render destroyed it) and re-measure the grid
+      // in case the row layout changed.
+      chartCard = previewMount.querySelector(
+        '.chart-card[data-chart-id="' + chartId + '"]'
+      );
+      if (chartCard) {
+        chartCard.classList.add("chart-resizing");
+        var newGrid = chartCard.parentNode;
+        if (newGrid) {
+          gridRect = newGrid.getBoundingClientRect();
+          cardRect = chartCard.getBoundingClientRect();
+          leftOffsetPx = cardRect.left - gridRect.left;
+          startCol = Math.max(0, Math.round(leftOffsetPx / stepW));
+          maxSpan = cols - startCol;
+        }
+      }
+    }
+    function onUp() {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onUp);
+      document.body.classList.remove("chart-resizing");
+      renderPreview();
+    }
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onUp);
+
+    onMove({ clientX: startX });
+  }
+
   function handleSectionReorder(sectionCard, direction) {
     if (!currentDashboard || !sectionCard) return;
     var idx = parseInt(sectionCard.getAttribute("data-section-index"), 10);
     if (isNaN(idx)) return;
     DashboardModel.moveSectionInOrder(currentDashboard, idx, direction);
     renderPreview();
+  }
+
+  function handleSectionDuplicate(sectionCard) {
+    if (!currentDashboard || !sectionCard) return;
+    var idx = parseInt(sectionCard.getAttribute("data-section-index"), 10);
+    if (isNaN(idx)) return;
+    var newIdx = DashboardModel.duplicateSection(currentDashboard, idx);
+    renderPreview();
+    if (newIdx >= 0) selectSection(newIdx);
   }
 
   // ── Add helpers ──────────────────────────────────────

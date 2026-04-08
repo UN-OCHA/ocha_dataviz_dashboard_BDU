@@ -92,6 +92,23 @@ var TableEditor = (function () {
       wrap.appendChild(input);
     }));
 
+    // ── Width within section (intra-section column span) ──
+    body.appendChild(field("Width within section", function (wrap) {
+      var hint = document.createElement("p");
+      hint.className = "hint";
+      hint.style.margin = "0 0 6px";
+      hint.textContent =
+        "How wide this chart is inside its section (1\u201312). " +
+        "Set less than 12 to put it side-by-side with another chart in the same row.";
+      wrap.appendChild(hint);
+      var initial = (typeof chart.span === "number" && chart.span >= 1 && chart.span <= 12)
+        ? chart.span : 12;
+      wrap.appendChild(buildColumnPicker(initial, function (n) {
+        chart.span = n;
+        ctx.onChange();
+      }));
+    }));
+
     // ── Chart type ───────────────────────────────
     body.appendChild(field("Chart type", function (wrap) {
       var select = document.createElement("select");

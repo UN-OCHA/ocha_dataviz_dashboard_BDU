@@ -504,6 +504,8 @@ html, body {
 .dashboard.export-mode .card-arrows,
 .dashboard.export-mode .section-add-chart,
 .dashboard.export-mode .section-resize,
+.dashboard.export-mode .chart-resize,
+.dashboard.export-mode .section-resize-badge,
 .dashboard.export-mode .fab-add,
 .dashboard.export-mode .fab-menu,
 .dashboard.export-mode .card-index {
@@ -763,23 +765,27 @@ html, body {
 }
 .section-text-block:hover { color: var(--text); }
 
+/* The section's inner chart container is a 12-column CSS grid. Each chart
+ * card declares an intra-section span via inline `grid-column: span N`
+ * (set by dashboard-renderer.js from chart.span). Charts that span 12
+ * (the default) take a whole row, so adding new charts to a section
+ * still flows top-to-bottom by default. Spans <12 sit side-by-side. */
 .section-charts {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 12px;
   flex: 1 1 auto;
   min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
+  align-items: stretch;
 }
-/* Default divider line between adjacent charts inside a section.
- * Uses box-sizing: border-box and width: 100% so the line can never
- * extend past the section-charts container, regardless of what the chart
- * content does. The parent .section-card also has overflow: hidden as a
- * second safety net. */
-.section-charts > .chart-card + .chart-card {
-  border-top: 1px solid var(--border);
-  margin-top: 12px;
+/* Divider line above stacked full-width charts only. Side-by-side charts
+ * (any chart-span < 12) never get a divider, since a top border would
+ * only sit on one of two siblings and look awkward. */
+.section-charts > .chart-card.chart-span-12:not(:first-child) {
   padding-top: 12px;
+  border-top: 1px solid var(--border);
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
@@ -921,9 +927,48 @@ html, body {
 /* While dragging, lock the cursor and disable text selection across the
    whole document so the drag feels solid. */
 body.section-resizing,
-body.section-resizing * {
+body.section-resizing *,
+body.chart-resizing,
+body.chart-resizing * {
   cursor: ew-resize !important;
   user-select: none !important;
+}
+
+/* Chart-card right-edge resize handle (intra-section). Sister to
+ * .section-resize but anchored to the chart card and snapping to the
+ * parent .section-charts grid columns. */
+.chart-card { position: relative; }
+.chart-resize {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  width: 14px;
+  bottom: 0;
+  cursor: ew-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.12s;
+  z-index: 4;
+  user-select: none;
+}
+.chart-card:hover .chart-resize,
+.chart-card.chart-resizing .chart-resize {
+  opacity: 1;
+}
+.chart-resize-grip {
+  width: 3px;
+  height: 32px;
+  background: var(--ocha-blue);
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.9);
+  transition: height 0.12s, background 0.12s;
+}
+.chart-resize:hover .chart-resize-grip,
+.chart-card.chart-resizing .chart-resize-grip {
+  background: var(--ocha-blue-dark);
+  height: 48px;
 }
 
 /* Inspector chart list */
@@ -981,6 +1026,12 @@ body.section-resizing * {
   background: var(--ocha-blue);
   color: white;
   border-color: var(--ocha-blue);
+}
+/* Duplicate button — same chip style as the move arrows but with a small
+   visual gap so it reads as a separate action. */
+.card-arrow.card-arrow-dup {
+  margin-left: 4px;
+  font-size: 13px;
 }
 .card-index {
   display: inline-flex;

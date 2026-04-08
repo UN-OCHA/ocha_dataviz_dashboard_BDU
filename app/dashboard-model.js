@@ -202,6 +202,35 @@ var DashboardModel = (function () {
     return true;
   }
 
+  // ── Duplicate helpers ──────────────────────────────
+  // Both deep-clone via JSON to drop any DOM/cache references, then mint
+  // fresh chart IDs so the editor can track the new copies independently.
+
+  // Duplicate a chart, inserting the copy immediately after the original
+  // in the same section. Returns the new chart's id.
+  function duplicateChart(d, chartId) {
+    var loc = findChart(d, chartId);
+    if (!loc) return null;
+    var clone = JSON.parse(JSON.stringify(loc.chart));
+    clone.id = newChartId();
+    if (clone.title) clone.title = clone.title + " (copy)";
+    loc.section.charts.splice(loc.chartIndex + 1, 0, clone);
+    return clone.id;
+  }
+
+  // Duplicate a section, inserting the copy immediately after the original.
+  // Every chart inside the cloned section gets a fresh id. Returns the new
+  // section's index.
+  function duplicateSection(d, sectionIndex) {
+    if (!d || !Array.isArray(d.sections)) return -1;
+    if (sectionIndex < 0 || sectionIndex >= d.sections.length) return -1;
+    var clone = JSON.parse(JSON.stringify(d.sections[sectionIndex]));
+    if (clone.title) clone.title = clone.title + " (copy)";
+    (clone.charts || []).forEach(function (c) { c.id = newChartId(); });
+    d.sections.splice(sectionIndex + 1, 0, clone);
+    return sectionIndex + 1;
+  }
+
   // Add a brand-new section that contains only a text block.
   function addTextSection(d) {
     if (!Array.isArray(d.sections)) d.sections = [];
@@ -362,6 +391,8 @@ var DashboardModel = (function () {
     addChartToSection: addChartToSection,
     addSection: addSection,
     addTextSection: addTextSection,
-    moveChartWithinSection: moveChartWithinSection
+    moveChartWithinSection: moveChartWithinSection,
+    duplicateChart: duplicateChart,
+    duplicateSection: duplicateSection
   };
 })();
