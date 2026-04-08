@@ -225,27 +225,63 @@ html, body {
 
 /* ── Editor shell ─────────────────────────────────── */
 
+/* App shell: a single-column grid with two rows (topbar + content).
+ *
+ * The sidebar, preview, and inspector all share the same `content` grid
+ * area — they stack on top of each other. The preview fills the area;
+ * the sidebar and inspector are overlay panels that slide in from the
+ * left and right edges respectively.
+ *
+ * Because the preview's width never changes when a panel opens/closes,
+ * charts don't re-render and the dashboard stays perfectly stable as
+ * you edit. */
 .app {
   display: grid;
-  grid-template-columns: 320px 1fr 0;
+  grid-template-columns: 1fr;
   grid-template-rows: auto 1fr;
   grid-template-areas:
-    "topbar topbar topbar"
-    "sidebar preview inspector";
+    "topbar"
+    "content";
   height: 100vh;
   overflow: hidden;
-  transition: grid-template-columns 0.18s ease;
 }
-.app.inspector-open {
-  grid-template-columns: 320px 1fr 360px;
+.topbar { grid-area: topbar; }
+.preview,
+.sidebar,
+.inspector {
+  grid-area: content;
+  min-width: 0;
 }
-.app.sidebar-collapsed {
-  grid-template-columns: 0 1fr 0;
+.preview { z-index: 1; }
+.sidebar,
+.inspector {
+  z-index: 10;
+  pointer-events: auto;
+  transition: transform var(--md-duration-medium2) var(--md-easing-emphasized),
+              box-shadow var(--md-duration-medium2) var(--md-easing-standard),
+              opacity var(--md-duration-short3) var(--md-easing-standard);
 }
-.app.sidebar-collapsed.inspector-open {
-  grid-template-columns: 0 1fr 360px;
+/* Sidebar hidden state — translate left off-screen */
+.app.sidebar-collapsed .sidebar {
+  transform: translateX(-100%);
+  pointer-events: none;
+  opacity: 0.7;
+  box-shadow: none;
 }
-.app.sidebar-collapsed .sidebar { display: none; }
+/* Inspector default state is hidden (translated right off-screen);
+   .app.inspector-open slides it back in. */
+.inspector {
+  transform: translateX(100%);
+  pointer-events: none;
+  opacity: 0.7;
+  box-shadow: none;
+}
+.app.inspector-open .inspector {
+  transform: translateX(0);
+  pointer-events: auto;
+  opacity: 1;
+  box-shadow: var(--md-elevation-3);
+}
 
 /* ── Topbar (ported from plugin #header pattern) ── */
 .topbar {
@@ -419,9 +455,10 @@ html, body {
 }
 .btn.icon:active { transform: scale(0.92); }
 
-/* ── Sidebar (M3-style panel, bg-sidebar) ───────── */
+/* ── Sidebar (M3-style overlay panel, slides in from the left) ── */
 .sidebar {
-  grid-area: sidebar;
+  width: 320px;
+  justify-self: start;
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border-default);
   padding: var(--space-300);
@@ -429,6 +466,7 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: var(--space-300);
+  box-shadow: var(--md-elevation-2);
 }
 .sidebar label {
   font-size: 10px;
@@ -545,22 +583,22 @@ html, body {
 
 /* ── Preview area (scrollable dashboard canvas) ── */
 .preview {
-  grid-area: preview;
+  /* grid-area is set above in the shared rule with sidebar + inspector */
   overflow: auto;
   padding: var(--space-500);
   background: var(--bg-page);
 }
 
-/* ── Inspector (right side panel, M3 patterns) ──── */
+/* ── Inspector (overlay panel, slides in from the right) ──── */
 .inspector {
-  grid-area: inspector;
+  width: 360px;
+  justify-self: end;
   background: var(--bg-layer-1);
   border-left: 1px solid var(--border-default);
   overflow-y: auto;
-  display: none;
+  display: flex;
   flex-direction: column;
 }
-.app.inspector-open .inspector { display: flex; }
 
 .inspector-head {
   padding: var(--space-300) var(--space-300);
@@ -1667,19 +1705,13 @@ body.section-resizing * {
 @media (max-width: 1100px) {
   .preview { padding: 16px; }
 }
+/* On narrow viewports the overlay panels stretch edge-to-edge when
+ * open (same slide-in-from-side animation, just wider). On really
+ * narrow screens the sidebar defaults to collapsed so the preview
+ * isn't immediately covered. */
 @media (max-width: 900px) {
-  .app, .app.inspector-open {
-    grid-template-columns: 1fr;
-    grid-template-areas:
-      "topbar"
-      "sidebar"
-      "preview"
-      "inspector";
-    height: auto;
-    overflow: auto;
-  }
-  .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
-  .inspector { border-left: none; border-top: 1px solid var(--border); }
+  .sidebar   { width: min(320px, 100vw); }
+  .inspector { width: min(360px, 100vw); }
 }
 
 /* ══════════════════════════════════════════════
