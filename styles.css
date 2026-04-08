@@ -12,33 +12,192 @@
  *   - PDF/print exports auto-paginate the same DOM into A4 landscape pages.
  */
 
+/* ══════════════════════════════════════════════
+   DESIGN TOKENS — ported from ocha_dataviz_plugin/client/styles.css
+   ══════════════════════════════════════════════
+   Same M3 (Material Design 3) design language the Illustrator plugin
+   uses: motion, elevation, spacing, state layers, and a pair of
+   dark/light themes. Both theme blocks define the same variables, so
+   switching <html data-theme="…"> between "dark" and "light" swaps the
+   palette at runtime.
+
+   OCHA brand colors are kept as separate tokens (--ocha-blue, etc.)
+   because they're referenced by the dashboard preview as literal brand
+   colors regardless of UI theme. */
+
 :root {
+  /* ── Brand colors (independent of UI theme) ── */
   --ocha-blue: #009EDB;
   --ocha-blue-dark: #005B8F;
   --hnrp-orange: #F58220;
   --flash-red: #ED1847;
   --gho-gold: #FFC800;
-  --bg: #F4F6F8;
-  --surface: #FFFFFF;
-  --border: #E1E4E8;
-  --text: #1F2328;
-  --text-muted: #57606A;
-  --radius: 8px;
-  --shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
-  --font-sans: "Roboto", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-condensed: "Roboto Condensed", "Roboto", sans-serif;
 
+  /* ── Typography ────────────────────────── */
+  --font-sans: "Adobe Clean", "Source Sans Pro", Roboto, -apple-system,
+               BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+  --font-mono: "Source Code Pro", monospace;
+  --font-condensed: "Roboto Condensed", "Roboto", sans-serif;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 14px;
+  --font-size-lg: 16px;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --line-height-compact: 1.3;
+  --line-height-body: 1.5;
+
+  /* ── Spacing (base 8) ────────────────── */
+  --space-50:  2px;
+  --space-75:  4px;
+  --space-100: 8px;
+  --space-150: 10px;
+  --space-200: 12px;
+  --space-300: 16px;
+  --space-400: 24px;
+  --space-500: 32px;
+
+  /* ── Control sizing ──────────────────── */
+  --control-height-sm: 24px;
+  --control-height-md: 32px;
+  --control-height-lg: 40px;
+
+  /* ── Border radius ───────────────────── */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-full: 50%;
+
+  /* ── M3 motion — easing ──────────────── */
+  --md-easing-standard:            cubic-bezier(0.2, 0, 0, 1);
+  --md-easing-standard-decelerate: cubic-bezier(0, 0, 0, 1);
+  --md-easing-standard-accelerate: cubic-bezier(0.3, 0, 1, 1);
+  --md-easing-emphasized:          cubic-bezier(0.2, 0, 0, 1);
+  --md-easing-emphasized-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --md-easing-emphasized-accelerate: cubic-bezier(0.3, 0, 0.8, 0.15);
+
+  /* ── M3 motion — duration ────────────── */
+  --md-duration-short1: 50ms;
+  --md-duration-short2: 100ms;
+  --md-duration-short3: 150ms;
+  --md-duration-short4: 200ms;
+  --md-duration-medium1: 250ms;
+  --md-duration-medium2: 300ms;
+  --md-duration-medium3: 350ms;
+  --md-duration-medium4: 400ms;
+
+  /* ── M3 elevation (shadow pairs: key + ambient) ── */
+  --md-elevation-0: none;
+  --md-elevation-1: 0 1px 2px 0 rgba(0,0,0,0.30), 0 1px 3px 1px rgba(0,0,0,0.15);
+  --md-elevation-2: 0 1px 2px 0 rgba(0,0,0,0.30), 0 2px 6px 2px rgba(0,0,0,0.15);
+  --md-elevation-3: 0 1px 3px 0 rgba(0,0,0,0.30), 0 4px 8px 3px rgba(0,0,0,0.15);
+  --md-elevation-4: 0 2px 3px 0 rgba(0,0,0,0.30), 0 6px 10px 4px rgba(0,0,0,0.15);
+  --md-elevation-5: 0 4px 4px 0 rgba(0,0,0,0.30), 0 8px 12px 6px rgba(0,0,0,0.15);
+
+  /* ── Composed transition shorthands ── */
+  --transition-fast:   var(--md-duration-short3) var(--md-easing-standard);
+  --transition-normal: var(--md-duration-medium1) var(--md-easing-standard);
+  --transition-slow:   var(--md-duration-medium4) var(--md-easing-emphasized);
+
+  /* ── Dashboard layout constants ─── */
   --grid-gap: 16px;
   --page-pad: 24px;
-  --row-unit: 4px;   /* fine row unit for masonry packing */
-
-  /* Per-block minimum widths (px). The grid reflows when blocks can't
-   * fit at their declared span without dropping below these. */
+  --row-unit: 4px;
   --min-kpi: 160px;
   --min-narrow: 220px;
-  --min-mid:    320px;
-  --min-wide:   460px;
-  --min-text:   240px;
+  --min-mid: 320px;
+  --min-wide: 460px;
+  --min-text: 240px;
+}
+
+/* ── Light theme (default — online editor context) ── */
+:root,
+[data-theme="light"] {
+  --bg-page:        #f5f5f5;
+  --bg-layer-1:     #ffffff;
+  --bg-layer-2:     #f0f0f0;
+  --bg-sidebar:     #eceff3;
+  --bg-header:      #ffffff;
+  --bg-hover:       rgba(0,0,0,0.04);
+  --bg-active:      rgba(0,0,0,0.08);
+  --bg-selected:    #0d66d0;
+
+  --text-primary:   #1a1a1a;
+  --text-secondary: #6e6e6e;
+  --text-tertiary:  #8a8a8a;
+  --text-disabled:  #b0b0b0;
+  --text-inverse:   #ffffff;
+  --text-link:      #0d66d0;
+
+  --border-default: rgba(0,0,0,0.10);
+  --border-field:   rgba(0,0,0,0.18);
+  --border-subtle:  rgba(0,0,0,0.06);
+  --border-focus:   var(--ocha-blue);
+
+  --accent:         var(--ocha-blue);
+  --accent-hover:   var(--ocha-blue-dark);
+  --accent-bg:      rgba(0,158,219,0.10);
+
+  --negative:       #d7373f;
+  --negative-bg:    rgba(215,55,63,0.08);
+  --notice:         #d97706;
+  --notice-bg:      rgba(217,119,6,0.08);
+
+  --shadow-sm:      var(--md-elevation-1);
+  --shadow-md:      var(--md-elevation-2);
+  --shadow-lg:      var(--md-elevation-3);
+
+  --scrollbar-thumb: #c0c0c0;
+  --scrollbar-hover: #a0a0a0;
+
+  --focus-ring: 0 0 0 2px var(--border-focus);
+
+  /* ── Legacy aliases ───────────────────
+     Rules written before the token rename still reference these. They
+     map onto the new semantic tokens so we don't have to rewrite every
+     rule at once. */
+  --bg:          var(--bg-page);
+  --surface:     var(--bg-layer-1);
+  --border:      var(--border-default);
+  --text:        var(--text-primary);
+  --text-muted:  var(--text-secondary);
+  --radius:      var(--radius-lg);
+  --shadow:      var(--shadow-sm);
+}
+
+/* ── Dark theme (opt-in via <html data-theme="dark">) ── */
+[data-theme="dark"] {
+  --bg-page:        #1e1e1e;
+  --bg-layer-1:     #2c2c2c;
+  --bg-layer-2:     #323232;
+  --bg-sidebar:     #1a1a1a;
+  --bg-header:      #1a1a1a;
+  --bg-hover:       rgba(255,255,255,0.06);
+  --bg-active:      rgba(255,255,255,0.10);
+  --bg-selected:    #0d66d0;
+
+  --text-primary:   #f2f2f2;
+  --text-secondary: #b0b0b0;
+  --text-tertiary:  #888;
+  --text-disabled:  #6d6d6d;
+  --text-inverse:   #1e1e1e;
+  --text-link:      #4B9CF5;
+
+  --border-default: rgba(255,255,255,0.08);
+  --border-field:   rgba(255,255,255,0.12);
+  --border-subtle:  rgba(255,255,255,0.04);
+  --border-focus:   #4B9CF5;
+
+  --accent:         #4B9CF5;
+  --accent-hover:   #5AABFF;
+  --accent-bg:      rgba(75,156,245,0.15);
+
+  --scrollbar-thumb: #555;
+  --scrollbar-hover: #777;
 }
 
 * { box-sizing: border-box; }
