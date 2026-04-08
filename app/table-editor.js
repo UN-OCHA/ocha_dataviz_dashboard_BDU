@@ -54,6 +54,21 @@ var TableEditor = (function () {
       .replace(/"/g, "&quot;");
   }
 
+  // Resolve the current dashboard's style (ocha/hnrp/flash/gho) to the
+  // primary accent color used for recoloring icon previews. Falls back
+  // to OCHA blue when the chart engine isn't loaded yet.
+  function currentStyleAccent(dashboard) {
+    var name = (dashboard && dashboard.style) || "ocha";
+    if (typeof ChartRegistry !== "undefined" && ChartRegistry.getStyle) {
+      var s = ChartRegistry.getStyle(name);
+      if (s && s.colors && s.colors[0]) return s.colors[0];
+    }
+    if (name === "hnrp")  return "#F58220";
+    if (name === "flash") return "#ED1847";
+    if (name === "gho")   return "#FFC800";
+    return "#009EDB";
+  }
+
   function mount(container, ctx) {
     // ctx = { dashboard, chartLocation, onChange, onClose }
     var d = ctx.dashboard;
@@ -448,6 +463,7 @@ var TableEditor = (function () {
       var picker = IconPicker.create({
         mode: current === "flags" ? "flag" : "icon",
         current: currentKey,
+        accent: currentStyleAccent(ctx.dashboard),
         onPick: function (key) {
           // Write to every data row that shares this label (handles stacked)
           data.forEach(function (r) {
@@ -706,6 +722,7 @@ var TableEditor = (function () {
         var picker = IconPicker.create({
           mode: "icon",
           current: kpi.iconKey || null,
+          accent: currentStyleAccent(d),
           onPick: function (key) {
             kpi.iconKey = key;
             ctx.onChange();

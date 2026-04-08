@@ -1,31 +1,36 @@
 /**
- * IconPicker — reusable inline picker component for the inspector.
+ * IconPicker — inline inspector picker for humanitarian icons + flags.
  *
- * Supports two modes:
- *   - mode "icon": humanitarian icons from the GitHub-backed IconLoader.
- *     Search box + family filter + paginated grid of SVG thumbnails.
- *   - mode "flag": country flags from the static FlagLoader.
- *     Search box + grid of country flag thumbnails.
+ * Visual language mirrors the Illustrator plugin's icons-panel: search
+ * input at the top, OCHA-style color swatch bar, collapsible family
+ * filter chip row (icons only), and a scrollable list grouped by family
+ * with icon cards underneath each family header. No pagination — the
+ * full catalog loads into a scrollable container and the user scrolls.
  *
- * Usage (from table-editor.js):
+ * Two modes:
+ *   - mode "icon": humanitarian icons from IconLoader (GitHub-backed)
+ *   - mode "flag": country flags from FlagLoader (static assets)
  *
+ * Usage:
  *   var picker = IconPicker.create({
- *     mode: "icon",                    // or "flag"
+ *     mode: "icon",
  *     current: kpi.iconKey || null,
- *     onPick: function (key) {
- *       kpi.iconKey = key;             // dashboard JSON field
- *       ctx.onChange();
- *     },
- *     onClear: function () {
- *       delete kpi.iconKey;
- *       ctx.onChange();
- *     }
+ *     accent: "#009EDB",       // current dashboard style accent
+ *     onPick:  function (key) { ... },
+ *     onClear: function ()    { ... }
  *   });
- *   inspectorBody.appendChild(picker.element);
+ *   container.appendChild(picker.element);
  *
- * The picker mounts closed (shows a "Choose icon" button with the current
- * selection preview) and only expands the grid when the user clicks.
- * This keeps the inspector compact by default.
+ * Picker behaviour:
+ *   - Mounts closed: shows a card-style trigger with the chosen icon
+ *     (or an "Add" affordance if none), plus an inline clear (✕) button.
+ *   - Click anywhere on the trigger card to open the expanded panel.
+ *   - Expanded panel has an explicit close (×) in its header.
+ *   - The expanded panel is an overlay inside the inspector (not a modal)
+ *     so the inspector context is preserved.
+ *
+ * Cross-tool note: the UX mirrors the plugin's icons-panel, but the
+ * component is web-only — nothing here is shared with the plugin.
  */
 
 /* global IconPicker:true, IconLoader, FlagLoader */
@@ -33,300 +38,351 @@
 var IconPicker = (function () {
   "use strict";
 
-  var PAGE_SIZE = 60;  // icons per page of the grid
-
   function create(opts) {
     opts = opts || {};
-    var mode = opts.mode || "icon";
+    var mode    = opts.mode || "icon";
     var current = opts.current || null;
-    var onPick = opts.onPick || function () {};
+    var accent  = opts.accent || "#009EDB";
+    var onPick  = opts.onPick  || function () {};
     var onClear = opts.onClear || function () {};
 
     var root = document.createElement("div");
-    root.className = "icon-picker icon-picker-" + mode;
+    root.className = "picker2 picker2-" + mode;
 
-    // ── Trigger row (closed state) ─────────────────────
-    var trigger = document.createElement("div");
-    trigger.className = "icon-picker-trigger";
+    // ── Closed-state trigger card ──────────────────────
+    var trigger = document.createElement("button");
+    trigger.type = "button";
+    trigger.className = "picker2-trigger";
+    trigger.setAttribute("aria-label",
+      mode === "flag" ? "Choose a country flag" : "Choose an icon");
     root.appendChild(trigger);
 
-    var preview = document.createElement("div");
-    preview.className = "icon-picker-preview";
-    trigger.appendChild(preview);
+    var thumb = document.createElement("div");
+    thumb.className = "picker2-trigger-thumb";
+    trigger.appendChild(thumb);
 
-    var label = document.createElement("button");
-    label.type = "button";
-    label.className = "icon-picker-open-btn";
-    trigger.appendChild(label);
+    var triggerLabel = document.createElement("span");
+    triggerLabel.className = "picker2-trigger-label";
+    trigger.appendChild(triggerLabel);
 
-    var clearBtn = document.createElement("button");
-    clearBtn.type = "button";
-    clearBtn.className = "icon-picker-clear";
-    clearBtn.textContent = "\u2715";
+    var clearBtn = document.createElement("span");
+    clearBtn.className = "picker2-trigger-clear";
+    clearBtn.setAttribute("role", "button");
+    clearBtn.setAttribute("aria-label", "Remove");
     clearBtn.title = "Remove";
+    clearBtn.textContent = "\u2715";
     clearBtn.addEventListener("click", function (ev) {
       ev.stopPropagation();
+      ev.preventDefault();
       current = null;
-      renderPreview();
+      renderTrigger();
       onClear();
     });
     trigger.appendChild(clearBtn);
 
-    // ── Expanded grid area ────────────────────────────
+    trigger.addEventListener("click", function () {
+      if (isOpen) { close(); } else { open(); }
+    });
+
+    // ── Expanded panel ─────────────────────────────────
     var panel = document.createElement("div");
-    panel.className = "icon-picker-panel";
+    panel.className = "picker2-panel";
     panel.style.display = "none";
     root.appendChild(panel);
 
-    var controls = document.createElement("div");
-    controls.className = "icon-picker-controls";
-    panel.appendChild(controls);
+    var panelHead = document.createElement("div");
+    panelHead.className = "picker2-panel-head";
+    panel.appendChild(panelHead);
 
-    var searchInput = document.createElement("input");
-    searchInput.type = "search";
-    searchInput.className = "icon-picker-search";
-    searchInput.placeholder = mode === "flag" ? "Search country\u2026" : "Search icons\u2026";
-    controls.appendChild(searchInput);
+    var panelTitle = document.createElement("div");
+    panelTitle.className = "picker2-panel-title";
+    panelTitle.textContent = mode === "flag" ? "Choose a country flag" : "Choose an icon";
+    panelHead.appendChild(panelTitle);
 
-    var familySelect = null;
+    var panelClose = document.createElement("button");
+    panelClose.type = "button";
+    panelClose.className = "picker2-panel-close";
+    panelClose.title = "Close";
+    panelClose.setAttribute("aria-label", "Close picker");
+    panelClose.textContent = "\u00d7";
+    panelClose.addEventListener("click", close);
+    panelHead.appendChild(panelClose);
+
+    var search = document.createElement("input");
+    search.type = "search";
+    search.className = "picker2-search";
+    search.placeholder = mode === "flag" ? "Search country\u2026" : "Search icons\u2026";
+    panel.appendChild(search);
+
+    // Family filter chip row (icons only)
+    var familyWrap = null;
     if (mode === "icon") {
-      familySelect = document.createElement("select");
-      familySelect.className = "icon-picker-family";
-      controls.appendChild(familySelect);
-    }
-
-    var refreshBtn = null;
-    if (mode === "icon") {
-      refreshBtn = document.createElement("button");
-      refreshBtn.type = "button";
-      refreshBtn.className = "icon-picker-refresh";
-      refreshBtn.textContent = "\u21BB";
-      refreshBtn.title = "Refresh icons from GitHub";
-      controls.appendChild(refreshBtn);
+      familyWrap = document.createElement("div");
+      familyWrap.className = "picker2-families";
+      panel.appendChild(familyWrap);
     }
 
     var status = document.createElement("div");
-    status.className = "icon-picker-status";
+    status.className = "picker2-status";
     panel.appendChild(status);
 
-    var grid = document.createElement("div");
-    grid.className = "icon-picker-grid";
-    panel.appendChild(grid);
+    var list = document.createElement("div");
+    list.className = "picker2-list";
+    panel.appendChild(list);
 
-    var footer = document.createElement("div");
-    footer.className = "icon-picker-footer";
-    panel.appendChild(footer);
-
-    var prevBtn = document.createElement("button");
-    prevBtn.type = "button";
-    prevBtn.className = "icon-picker-nav";
-    prevBtn.textContent = "\u2039 Prev";
-    footer.appendChild(prevBtn);
-
-    var pageLabel = document.createElement("span");
-    pageLabel.className = "icon-picker-page";
-    footer.appendChild(pageLabel);
-
-    var nextBtn = document.createElement("button");
-    nextBtn.type = "button";
-    nextBtn.className = "icon-picker-nav";
-    nextBtn.textContent = "Next \u203a";
-    footer.appendChild(nextBtn);
-
-    // ── State ──────────────────────────────────────────
-    var allItems = [];        // [{ key, name, family? }]
-    var filtered = [];
-    var page = 0;
-    var isOpen = false;
-    var familyFilter = "";
-    var searchQuery = "";
-
-    // ── Trigger interactions ──────────────────────────
-    label.addEventListener("click", function () {
-      if (isOpen) { collapse(); }
-      else        { expand(); }
-    });
-    trigger.addEventListener("click", function (ev) {
-      if (ev.target === trigger || ev.target === preview) {
-        if (isOpen) { collapse(); }
-        else        { expand(); }
-      }
-    });
-
-    function expand() {
-      isOpen = true;
-      panel.style.display = "";
-      root.classList.add("open");
-      ensureLoaded();
-    }
-    function collapse() {
-      isOpen = false;
-      panel.style.display = "none";
-      root.classList.remove("open");
-    }
-
-    // ── Data loading ──────────────────────────────────
-    var loaded = false;
-    function ensureLoaded() {
-      if (loaded) return;
-      if (mode === "flag") {
-        allItems = FlagLoader.listAll();
-        loaded = true;
-        rebuild();
-        return;
-      }
-      // icon mode: pull catalog from GitHub-backed IconLoader
-      status.textContent = "Loading icon catalog\u2026";
-      IconLoader.loadMetadata().then(function (meta) {
-        allItems = meta.icons;
-        status.textContent = allItems.length + " icons \u00b7 updated " +
-          (meta.lastUpdated || "unknown");
-        // Populate family dropdown
-        if (familySelect) {
-          familySelect.innerHTML = "";
-          var optAll = document.createElement("option");
-          optAll.value = "";
-          optAll.textContent = "All families (" + allItems.length + ")";
-          familySelect.appendChild(optAll);
-          meta.families.forEach(function (fam) {
-            var count = (meta.byFamily[fam] || []).length;
-            if (!count) return;
-            var o = document.createElement("option");
-            o.value = fam;
-            o.textContent = fam + " (" + count + ")";
-            familySelect.appendChild(o);
-          });
-        }
-        loaded = true;
-        rebuild();
-      }).catch(function (err) {
-        status.textContent = "Couldn't load icons: " + err.message;
-      });
-    }
-
-    // ── Filtering + rendering ─────────────────────────
-    searchInput.addEventListener("input", function () {
-      searchQuery = searchInput.value.trim().toLowerCase();
-      page = 0;
-      rebuild();
-    });
-    if (familySelect) {
-      familySelect.addEventListener("change", function () {
-        familyFilter = familySelect.value;
-        page = 0;
-        rebuild();
-      });
-    }
-    if (refreshBtn) {
+    var refreshBtn = null;
+    if (mode === "icon") {
+      var foot = document.createElement("div");
+      foot.className = "picker2-foot";
+      refreshBtn = document.createElement("button");
+      refreshBtn.type = "button";
+      refreshBtn.className = "picker2-refresh";
+      refreshBtn.innerHTML = "\u21bb&nbsp;Refresh from GitHub";
+      refreshBtn.title = "Re-download metadata and icons from the GitHub repo";
       refreshBtn.addEventListener("click", function () {
         status.textContent = "Refreshing\u2026";
         loaded = false;
         IconLoader.refresh().then(function () { ensureLoaded(); });
       });
+      foot.appendChild(refreshBtn);
+      panel.appendChild(foot);
     }
-    prevBtn.addEventListener("click", function () {
-      if (page > 0) { page--; rebuild(); }
-    });
-    nextBtn.addEventListener("click", function () {
-      var maxPage = Math.max(0, Math.ceil(filtered.length / PAGE_SIZE) - 1);
-      if (page < maxPage) { page++; rebuild(); }
+
+    // ── State ──────────────────────────────────────────
+    var allItems = [];    // [{ key, name, family? }]
+    var isOpen = false;
+    var loaded = false;
+    var searchQuery = "";
+    var activeFamily = "";   // "" = all
+
+    // ── Open / close ──────────────────────────────────
+    function open() {
+      isOpen = true;
+      panel.style.display = "";
+      root.classList.add("open");
+      ensureLoaded();
+      setTimeout(function () { search.focus(); }, 0);
+    }
+    function close() {
+      isOpen = false;
+      panel.style.display = "none";
+      root.classList.remove("open");
+    }
+    // Close the picker when the user clicks outside of it
+    document.addEventListener("click", function (ev) {
+      if (!isOpen) return;
+      if (root.contains(ev.target)) return;
+      close();
     });
 
-    function rebuild() {
-      filtered = allItems.filter(function (it) {
-        if (familyFilter && it.family !== familyFilter) return false;
+    // ── Data load ─────────────────────────────────────
+    function ensureLoaded() {
+      if (loaded) return;
+      if (mode === "flag") {
+        allItems = FlagLoader.listAll();
+        loaded = true;
+        renderList();
+        return;
+      }
+      status.textContent = "Loading icon catalog\u2026";
+      IconLoader.loadMetadata().then(function (meta) {
+        allItems = meta.icons;
+        status.textContent =
+          allItems.length + " icons \u00b7 updated " + (meta.lastUpdated || "unknown");
+        buildFamilyChips(meta);
+        loaded = true;
+        renderList();
+      }).catch(function (err) {
+        status.textContent = "Couldn't load icons: " + err.message;
+      });
+    }
+
+    function buildFamilyChips(meta) {
+      if (!familyWrap) return;
+      familyWrap.innerHTML = "";
+      var allChip = makeChip("", "All", allItems.length);
+      familyWrap.appendChild(allChip);
+      meta.families.forEach(function (fam) {
+        var count = (meta.byFamily[fam] || []).length;
+        if (!count) return;
+        familyWrap.appendChild(makeChip(fam, fam, count));
+      });
+    }
+    function makeChip(value, label, count) {
+      var chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "picker2-chip";
+      if (value === activeFamily) chip.classList.add("active");
+      chip.innerHTML = label + ' <span class="picker2-chip-count">' + count + "</span>";
+      chip.addEventListener("click", function () {
+        activeFamily = value;
+        familyWrap.querySelectorAll(".picker2-chip").forEach(function (c) {
+          c.classList.toggle("active",
+            (c === chip));
+        });
+        renderList();
+      });
+      return chip;
+    }
+
+    // ── Filter / render list ──────────────────────────
+    search.addEventListener("input", function () {
+      searchQuery = search.value.trim().toLowerCase();
+      renderList();
+    });
+
+    function renderList() {
+      var filtered = allItems.filter(function (it) {
+        if (activeFamily && it.family !== activeFamily) return false;
         if (searchQuery) {
           var hay = (it.name + " " + it.key).toLowerCase();
           if (hay.indexOf(searchQuery) === -1) return false;
         }
         return true;
       });
-      var maxPage = Math.max(0, Math.ceil(filtered.length / PAGE_SIZE) - 1);
-      if (page > maxPage) page = maxPage;
-      var slice = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
-      grid.innerHTML = "";
-      slice.forEach(function (it) {
-        var cell = document.createElement("button");
-        cell.type = "button";
-        cell.className = "icon-picker-cell";
-        cell.title = it.name;
-        cell.setAttribute("data-key", it.key);
-        if (it.key === current) cell.classList.add("selected");
-        var thumb = document.createElement("div");
-        thumb.className = "icon-picker-cell-thumb";
-        cell.appendChild(thumb);
-        var lbl = document.createElement("div");
-        lbl.className = "icon-picker-cell-label";
-        lbl.textContent = it.name;
-        cell.appendChild(lbl);
-        loadThumb(thumb, it.key);
-        cell.addEventListener("click", function () {
-          current = it.key;
-          grid.querySelectorAll(".icon-picker-cell").forEach(function (c) {
-            c.classList.toggle("selected", c.getAttribute("data-key") === current);
-          });
-          renderPreview();
-          onPick(it.key);
-        });
-        grid.appendChild(cell);
-      });
-
-      pageLabel.textContent = filtered.length
-        ? "Page " + (page + 1) + " / " + (maxPage + 1) + " \u00b7 " + filtered.length + " results"
-        : "No results";
-      prevBtn.disabled = page === 0;
-      nextBtn.disabled = page >= maxPage;
-    }
-
-    function loadThumb(thumbEl, key) {
-      var loader = mode === "flag" ? FlagLoader : IconLoader;
-      var cached = loader.getCachedSvg(key);
-      if (cached) { thumbEl.innerHTML = cached; return; }
-      (mode === "flag" ? FlagLoader.loadFlagSvg(key) : IconLoader.loadIconSvg(key))
-        .then(function (svg) { thumbEl.innerHTML = svg; })
-        .catch(function () {
-          thumbEl.innerHTML = "<span class='icon-picker-miss'>?</span>";
-        });
-    }
-
-    function renderPreview() {
-      if (!current) {
-        preview.innerHTML = "<span class='icon-picker-empty'>No icon</span>";
-        label.textContent = mode === "flag" ? "Choose flag\u2026" : "Choose icon\u2026";
-        clearBtn.style.display = "none";
+      if (filtered.length === 0) {
+        list.innerHTML = '<div class="picker2-empty">No ' +
+          (mode === "flag" ? "flags" : "icons") + " match your filters.</div>";
         return;
       }
+
+      list.innerHTML = "";
+
+      // Group by family when searching across all families and in icon mode
+      if (mode === "icon" && !activeFamily) {
+        var grouped = {};
+        var familyOrder = [];
+        filtered.forEach(function (it) {
+          if (!grouped[it.family]) {
+            grouped[it.family] = [];
+            familyOrder.push(it.family);
+          }
+          grouped[it.family].push(it);
+        });
+        familyOrder.forEach(function (fam) {
+          var group = document.createElement("div");
+          group.className = "picker2-group";
+          var label = document.createElement("div");
+          label.className = "picker2-group-label";
+          label.innerHTML = escapeHtml(fam) +
+            ' <span class="picker2-group-count">' + grouped[fam].length + "</span>";
+          group.appendChild(label);
+          var grid = document.createElement("div");
+          grid.className = "picker2-grid";
+          grouped[fam].forEach(function (it) { grid.appendChild(buildCell(it)); });
+          group.appendChild(grid);
+          list.appendChild(group);
+        });
+        return;
+      }
+
+      // Flat grid for flag mode or when a single family is selected
+      var grid = document.createElement("div");
+      grid.className = "picker2-grid";
+      filtered.forEach(function (it) { grid.appendChild(buildCell(it)); });
+      list.appendChild(grid);
+    }
+
+    function buildCell(it) {
+      var cell = document.createElement("button");
+      cell.type = "button";
+      cell.className = "picker2-cell";
+      cell.title = it.name;
+      cell.setAttribute("data-key", it.key);
+      if (it.key === current) cell.classList.add("selected");
+
+      var thumbEl = document.createElement("div");
+      thumbEl.className = "picker2-cell-thumb";
+      cell.appendChild(thumbEl);
+
+      var nameEl = document.createElement("div");
+      nameEl.className = "picker2-cell-name";
+      nameEl.textContent = it.name;
+      cell.appendChild(nameEl);
+
+      loadThumb(thumbEl, it.key);
+
+      cell.addEventListener("click", function () {
+        current = it.key;
+        list.querySelectorAll(".picker2-cell").forEach(function (c) {
+          c.classList.toggle("selected", c.getAttribute("data-key") === current);
+        });
+        renderTrigger();
+        onPick(it.key);
+      });
+      return cell;
+    }
+
+    function loadThumb(el, key) {
+      var loader = mode === "flag" ? FlagLoader : IconLoader;
+      var cached = loader.getCachedSvg(key);
+      if (cached) {
+        el.innerHTML = mode === "icon" ? recolor(cached, accent) : cached;
+        return;
+      }
+      (mode === "flag" ? FlagLoader.loadFlagSvg(key) : IconLoader.loadIconSvg(key))
+        .then(function (svg) {
+          el.innerHTML = mode === "icon" ? recolor(svg, accent) : svg;
+        })
+        .catch(function () {
+          el.innerHTML = '<span class="picker2-miss">?</span>';
+        });
+    }
+
+    // ── Trigger render ────────────────────────────────
+    function renderTrigger() {
+      if (!current) {
+        thumb.innerHTML = '<span class="picker2-trigger-plus">+</span>';
+        triggerLabel.textContent = mode === "flag" ? "Add flag" : "Add icon";
+        clearBtn.style.display = "none";
+        trigger.classList.remove("has-value");
+        return;
+      }
+      trigger.classList.add("has-value");
       var loader = mode === "flag" ? FlagLoader : IconLoader;
       var cached = loader.getCachedSvg(current);
-      preview.innerHTML = cached
-        ? cached
-        : "<span class='icon-picker-loading'>\u2026</span>";
+      thumb.innerHTML = cached
+        ? (mode === "icon" ? recolor(cached, accent) : cached)
+        : '<span class="picker2-trigger-load">\u2026</span>';
       if (!cached) {
         (mode === "flag" ? FlagLoader.loadFlagSvg(current) : IconLoader.loadIconSvg(current))
-          .then(function (svg) { if (current) preview.innerHTML = svg; })
+          .then(function (svg) {
+            if (current) thumb.innerHTML = mode === "icon" ? recolor(svg, accent) : svg;
+          })
           .catch(function () {});
       }
-      // Best-effort display name — for icons we rely on metadata if loaded,
-      // for flags we look up in FlagsData
       var displayName = current;
       if (mode === "flag") {
         var rec = FlagLoader.resolve(current);
         if (rec) displayName = rec.name;
-      } else if (loaded) {
+      } else {
         for (var i = 0; i < allItems.length; i++) {
           if (allItems[i].key === current) { displayName = allItems[i].name; break; }
         }
       }
-      label.textContent = displayName;
+      triggerLabel.textContent = displayName;
       clearBtn.style.display = "";
     }
 
-    renderPreview();
+    // ── Recoloring helper (icons only) ────────────────
+    function recolor(svg, color) {
+      if (!svg || !color) return svg;
+      return svg.replace(/#009[eE][dD][bB]/g, color);
+    }
+
+    function escapeHtml(s) {
+      return String(s || "")
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+
+    renderTrigger();
 
     return {
       element: root,
-      setCurrent: function (key) { current = key; renderPreview(); },
+      setCurrent: function (key) { current = key; renderTrigger(); },
+      setAccent:  function (c)   { accent = c; renderTrigger(); renderList(); },
       getCurrent: function () { return current; }
     };
   }

@@ -1393,188 +1393,329 @@ body.chart-resizing * {
   .inspector { border-left: none; border-top: 1px solid var(--border); }
 }
 
-/* ── Icon / flag picker (inspector inline component) ───────── */
-.icon-picker {
-  border: 1px solid var(--border);
-  background: var(--surface);
+/* ══════════════════════════════════════════════
+   ICON / FLAG PICKER (picker2)
+   ══════════════════════════════════════════════
+   Visual language mirrors the Illustrator plugin's icons-panel.
+   Uses the ported M3 design tokens for motion, elevation, spacing,
+   and theme-aware colors.
+
+   Two distinct states:
+     - Closed: a single card-style trigger button showing the chosen
+       icon + its name + an inline ✕ clear button. Clicking opens the
+       panel. Empty state shows a large "+" as an "Add icon" affordance.
+     - Open: an expanded panel inside the inspector with a header,
+       search input, family chips (icons only), grouped scrollable
+       list of icon cards, and a refresh button (icons only).
+*/
+
+/* ── Trigger card (closed state) ─── */
+.picker2 {
+  position: relative;
+  display: block;
 }
-.icon-picker-trigger {
+.picker2-trigger {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
+  gap: var(--space-200);
+  width: 100%;
+  padding: var(--space-150) var(--space-200);
+  background: var(--bg-layer-1);
+  border: 1px solid var(--border-field);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
   cursor: pointer;
-  min-height: 36px;
+  min-height: 56px;
+  transition: background var(--transition-fast),
+              border-color var(--transition-fast),
+              box-shadow var(--transition-fast);
 }
-.icon-picker-preview {
+.picker2-trigger:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-focus);
+}
+.picker2-trigger:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-color: var(--border-focus);
+}
+.picker2.open .picker2-trigger {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  box-shadow: var(--md-elevation-1);
+}
+.picker2-trigger-thumb {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-layer-2);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.picker2-trigger-thumb svg {
+  width: 32px;
+  height: 32px;
+  display: block;
+}
+.picker2-trigger-plus {
+  font-size: 22px;
+  font-weight: var(--font-weight-regular);
+  color: var(--text-tertiary);
+  line-height: 1;
+}
+.picker2-trigger-load {
+  font-size: 14px;
+  color: var(--text-tertiary);
+}
+.picker2-trigger-label {
+  flex: 1 1 auto;
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.picker2-trigger:not(.has-value) .picker2-trigger-label {
+  color: var(--text-tertiary);
+}
+.picker2-trigger-clear {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  color: var(--text-tertiary);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.picker2-trigger-clear:hover {
+  background: var(--bg-active);
+  color: var(--text-primary);
+}
+
+/* ── Expanded panel ────────────────── */
+.picker2-panel {
+  margin-top: var(--space-100);
+  background: var(--bg-layer-1);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-200);
+  box-shadow: var(--md-elevation-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-150);
+}
+.picker2-panel-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-100);
+}
+.picker2-panel-title {
+  flex: 1 1 auto;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+}
+.picker2-panel-close {
   flex: 0 0 auto;
   width: 28px;
   height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #fafbfc;
-  border: 1px solid var(--border);
-}
-.icon-picker-preview svg {
-  width: 22px;
-  height: 22px;
-  display: block;
-}
-.icon-picker-empty,
-.icon-picker-loading {
-  font-size: 10px;
-  color: var(--text-muted);
-}
-.icon-picker-open-btn {
-  flex: 1 1 auto;
-  text-align: left;
   background: transparent;
   border: none;
-  font: inherit;
-  font-size: 13px;
-  color: var(--text);
-  padding: 0;
-  cursor: pointer;
-}
-.icon-picker-open-btn:hover { color: var(--ocha-blue); }
-.icon-picker-clear {
-  background: transparent;
-  border: 1px solid var(--border);
-  width: 22px;
-  height: 22px;
-  font-size: 12px;
+  border-radius: var(--radius-full);
+  font-size: 20px;
   line-height: 1;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   cursor: pointer;
-  padding: 0;
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
-.icon-picker-clear:hover { color: var(--text); background: #f0f2f4; }
-.icon-picker.open .icon-picker-trigger {
-  border-bottom: 1px solid var(--border);
-  background: #f6f8fa;
+.picker2-panel-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
-.icon-picker-panel {
-  padding: 8px;
+.picker2-search {
+  height: var(--control-height-md);
+  padding: 0 var(--space-150);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  background: var(--bg-layer-2);
+  border: 1px solid var(--border-field);
+  border-radius: var(--radius-md);
+  outline: none;
+  transition: border-color var(--transition-fast),
+              background var(--transition-fast);
 }
-.icon-picker-controls {
+.picker2-search:focus {
+  border-color: var(--border-focus);
+  background: var(--bg-layer-1);
+}
+.picker2-search::placeholder { color: var(--text-tertiary); }
+
+/* ── Family filter chip row ──────── */
+.picker2-families {
   display: flex;
-  gap: 6px;
-  margin-bottom: 8px;
+  flex-wrap: wrap;
+  gap: var(--space-75);
 }
-.icon-picker-search {
-  flex: 1 1 auto;
-  min-width: 0;
-  padding: 5px 8px;
-  border: 1px solid var(--border);
-  font-size: 12px;
-  background: white;
-}
-.icon-picker-family {
-  flex: 0 0 auto;
-  max-width: 160px;
-  padding: 5px 6px;
-  border: 1px solid var(--border);
-  font: inherit;
-  font-size: 12px;
-  background: white;
-}
-.icon-picker-refresh {
-  width: 28px;
-  background: white;
-  border: 1px solid var(--border);
-  font-size: 14px;
-  cursor: pointer;
-  padding: 0;
-}
-.icon-picker-refresh:hover { background: #eef2f6; }
-.icon-picker-status {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-bottom: 6px;
-}
-.icon-picker-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+.picker2-chip {
+  display: inline-flex;
+  align-items: center;
   gap: 4px;
-  max-height: 320px;
-  overflow-y: auto;
-  padding: 2px;
-  background: #fafbfc;
-  border: 1px solid var(--border);
+  padding: 4px 10px;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  background: var(--bg-layer-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  cursor: pointer;
+  transition: background var(--transition-fast),
+              color var(--transition-fast),
+              border-color var(--transition-fast);
 }
-.icon-picker-cell {
+.picker2-chip:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.picker2-chip.active {
+  background: var(--accent);
+  color: var(--text-inverse);
+  border-color: var(--accent);
+}
+.picker2-chip-count {
+  font-size: 10px;
+  font-weight: var(--font-weight-regular);
+  opacity: 0.8;
+}
+
+/* ── Status + scrollable list ──── */
+.picker2-status {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+}
+.picker2-list {
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: var(--space-75);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-150);
+}
+.picker2-group { display: flex; flex-direction: column; gap: var(--space-75); }
+.picker2-group-label {
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: var(--space-50) 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.picker2-group-count { font-weight: var(--font-weight-regular); color: var(--text-tertiary); }
+.picker2-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 4px;
+}
+.picker2-empty {
+  padding: var(--space-400) var(--space-200);
+  text-align: center;
+  font-size: var(--font-size-sm);
+  color: var(--text-tertiary);
+}
+
+/* ── Icon card ──────────────────── */
+.picker2-cell {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
-  gap: 2px;
-  padding: 4px 2px;
-  background: white;
+  gap: 4px;
+  padding: 8px 4px 6px;
+  background: var(--bg-layer-2);
   border: 1px solid transparent;
-  font: inherit;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  min-height: 60px;
+  text-align: center;
+  font-family: var(--font-sans);
+  transition: background var(--transition-fast),
+              border-color var(--transition-fast),
+              transform var(--transition-fast);
 }
-.icon-picker-cell:hover {
-  border-color: var(--ocha-blue);
-  background: #f0f9ff;
+.picker2-cell:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-default);
 }
-.icon-picker-cell.selected {
-  border-color: var(--ocha-blue);
-  background: rgba(0, 158, 219, 0.12);
+.picker2-cell:active {
+  transform: scale(0.96);
 }
-.icon-picker-cell-thumb {
-  width: 36px;
-  height: 36px;
+.picker2-cell.selected {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+}
+.picker2-cell-thumb {
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
-.icon-picker-cell-thumb svg {
+.picker2-cell-thumb svg {
   width: 32px;
   height: 32px;
-  display: block;
+  overflow: visible;
 }
-.icon-picker-cell-label {
+.picker2-cell-name {
   font-size: 9px;
-  line-height: 1.1;
-  color: var(--text-muted);
-  text-align: center;
+  line-height: 1.2;
+  color: var(--text-secondary);
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
-  max-width: 100%;
-  word-break: break-word;
 }
-.icon-picker-miss {
-  font-size: 18px;
-  color: var(--text-muted);
-}
-.icon-picker-footer {
+.picker2-miss { font-size: 18px; color: var(--text-tertiary); }
+
+/* ── Footer ─────────────────────── */
+.picker2-foot {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  margin-top: 8px;
-  font-size: 11px;
-  color: var(--text-muted);
+  justify-content: flex-end;
+  padding-top: var(--space-75);
+  border-top: 1px solid var(--border-default);
 }
-.icon-picker-nav {
-  background: white;
-  border: 1px solid var(--border);
-  font: inherit;
-  font-size: 12px;
+.picker2-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 4px 10px;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
   cursor: pointer;
+  transition: background var(--transition-fast),
+              color var(--transition-fast),
+              border-color var(--transition-fast);
 }
-.icon-picker-nav:hover:not(:disabled) { background: #eef2f6; }
-.icon-picker-nav:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.icon-picker-page {
-  font-variant-numeric: tabular-nums;
+.picker2-refresh:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-field);
 }
