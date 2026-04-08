@@ -14,15 +14,17 @@
  * If either drifts, both tools need updating (see CLAUDE.md).
  */
 
-/* global FlagLoader:true, FlagsData */
+/* global FlagLoader:true, FlagsData, SvgParser */
 
 var FlagLoader = (function () {
   "use strict";
 
   var ASSETS_DIR = "assets/flags/";   // relative to index.html
 
-  // In-memory cache of fetched SVG text, keyed by ISO3 code
+  // In-memory caches of fetched SVG text and its parsed chart-engine form,
+  // both keyed by uppercase ISO3 code.
   var svgMem = {};
+  var parsedMem = {};
 
   // Indexes (lazy-built on first lookup)
   var byCode = null;
@@ -93,11 +95,27 @@ var FlagLoader = (function () {
       });
   }
 
-  /** Synchronous lookup for renderers — returns cached SVG or null. */
+  /** Synchronous lookup for picker thumbnails — returns raw SVG or null. */
   function getCachedSvg(input) {
     var rec = resolve(input);
     if (!rec) return null;
     return svgMem[rec.code.toUpperCase()] || null;
+  }
+
+  /**
+   * Synchronous lookup that returns the PARSED object the chart engine
+   * consumes: `{ innerSvg, vbW, vbH }`, or null if not yet loaded.
+   */
+  function getParsedSvg(input) {
+    var rec = resolve(input);
+    if (!rec) return null;
+    var code = rec.code.toUpperCase();
+    if (parsedMem[code]) return parsedMem[code];
+    var raw = svgMem[code];
+    if (!raw) return null;
+    var parsed = SvgParser.parse(raw);
+    if (parsed) parsedMem[code] = parsed;
+    return parsed;
   }
 
   /** Warm the cache for a list of codes. Returns a settling promise. */
@@ -114,6 +132,7 @@ var FlagLoader = (function () {
     urlFor: urlFor,
     loadFlagSvg: loadFlagSvg,
     getCachedSvg: getCachedSvg,
+    getParsedSvg: getParsedSvg,
     prefetch: prefetch
   };
 })();

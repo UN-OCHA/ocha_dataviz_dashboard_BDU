@@ -27,7 +27,7 @@
  * cross-tool concern (see CLAUDE.md).
  */
 
-/* global IconLoader:true */
+/* global IconLoader:true, SvgParser */
 
 var IconLoader = (function () {
   "use strict";
@@ -41,7 +41,8 @@ var IconLoader = (function () {
   var LS_METADATA_KEY = "ocha-icon-metadata";   // cached metadata fallback
 
   // ── In-memory caches (session lifetime) ────────────────
-  var svgMem = {};                  // { key → svgString }
+  var svgMem = {};                  // { key → raw svg string }
+  var parsedMem = {};               // { key → { innerSvg, vbW, vbH } }
   var metaPromise = null;           // { ok: true, icons, families } | reject
 
   // ── localStorage helpers ───────────────────────────────
@@ -151,9 +152,9 @@ var IconLoader = (function () {
   }
 
   /**
-   * Non-async synchronous lookup — returns the SVG if it's already been
-   * loaded into memory or localStorage, otherwise null. Used by the chart
-   * renderer to inline icons without having to await in a render loop.
+   * Non-async synchronous lookup — returns the RAW SVG string if it's
+   * already cached, otherwise null. Used by the picker UI to render a
+   * preview thumbnail.
    */
   function getCachedSvg(key) {
     if (!key) return null;
@@ -161,6 +162,21 @@ var IconLoader = (function () {
     var ls = lsGet(LS_PREFIX + key);
     if (ls) { svgMem[key] = ls; return ls; }
     return null;
+  }
+
+  /**
+   * Synchronous lookup that returns the PARSED object the chart engine
+   * consumes: `{ innerSvg, vbW, vbH }`, or null if not yet loaded. Memoized
+   * per key so the parse happens at most once.
+   */
+  function getParsedSvg(key) {
+    if (!key) return null;
+    if (parsedMem[key]) return parsedMem[key];
+    var raw = getCachedSvg(key);
+    if (!raw) return null;
+    var parsed = SvgParser.parse(raw);
+    if (parsed) parsedMem[key] = parsed;
+    return parsed;
   }
 
   /**
@@ -184,6 +200,7 @@ var IconLoader = (function () {
    */
   function refresh() {
     svgMem = {};
+    parsedMem = {};
     metaPromise = null;
     // Clear per-icon SVG cache entries
     try {
@@ -220,6 +237,7 @@ var IconLoader = (function () {
     loadMetadata: loadMetadata,
     loadIconSvg: loadIconSvg,
     getCachedSvg: getCachedSvg,
+    getParsedSvg: getParsedSvg,
     prefetch: prefetch,
     refresh: refresh,
     cacheBytes: cacheBytes,

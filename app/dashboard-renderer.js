@@ -106,18 +106,17 @@ var DashboardRenderer = (function () {
 
   // ── Data reshaping ──────────────────────────────────
 
-  // Resolve a row's stored iconKey / flagCode to actual SVG markup from
-  // the in-memory cache. Returns `_iconSvg` (raw svg string) which the
-  // chart engine already understands. Returns null if the icon hasn't
-  // been loaded yet — in that case the paint pass happens without the
-  // icon and a subsequent pass (after prefetch resolves) fills it in.
+  // Resolve a row's stored iconKey / flagCode to the PARSED object the
+  // chart engine expects: { innerSvg, vbW, vbH }. Returns null if the icon
+  // hasn't been loaded yet — in that case the paint pass happens without
+  // the icon and a subsequent pass (after prefetch resolves) fills it in.
   function resolveRowIcon(row, iconColType) {
     if (!row) return null;
     if (iconColType === "flags" && row.flagCode && typeof FlagLoader !== "undefined") {
-      return FlagLoader.getCachedSvg(row.flagCode);
+      return FlagLoader.getParsedSvg(row.flagCode);
     }
     if (iconColType === "icons" && row.iconKey && typeof IconLoader !== "undefined") {
-      return IconLoader.getCachedSvg(row.iconKey);
+      return IconLoader.getParsedSvg(row.iconKey);
     }
     return null;
   }
