@@ -33,6 +33,7 @@
   <!-- App modules -->
   <script src="app/dashboard-model.js" defer></script>
   <script src="app/storage.js" defer></script>
+  <script src="app/file-io.js" defer></script>
   <script src="app/csv-parser.js" defer></script>
   <script src="app/flags-data.js" defer></script>
   <script src="app/svg-parser.js" defer></script>
@@ -112,6 +113,11 @@
       </div>
 
       <div id="messages" class="messages"></div>
+
+      <!-- Save / library panel. Rendered dynamically by main.js via
+           renderLibraryPanel() so the list stays in sync with
+           localStorage. -->
+      <div id="library-panel" class="library-panel"></div>
 
       <p class="hint">
         <strong>Tip:</strong> click any chart on the canvas to edit its title, type, and data in a side panel.

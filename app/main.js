@@ -127,6 +127,10 @@
       rerenderFromCSV();
     }
 
+    // Paint the Save / library panel in the sidebar. Re-renders after
+    // every save/rename/delete so the list stays in sync.
+    renderLibraryPanel();
+
     // Debounced re-parse from textarea
     var timer = null;
     textarea.addEventListener("input", function () {
@@ -832,6 +836,221 @@
       }
       row.items.forEach(function (it) { it.section.span = it.min; });
     });
+  }
+
+  // ── Library / save panel ─────────────────────────────
+  // Renders the "My dashboards" section of the sidebar: a Save-current
+  // button, Import/Export JSON buttons, and a list of every named
+  // localStorage entry. Called on bootstrap and after every library
+  // mutation (save / rename / delete / duplicate) so the list stays
+  // in sync without reloading the page.
+
+  // Remember the current library entry id (if the user loaded from
+  // the library). We use it to offer "Save to current slot" instead
+  // of "Save as new" after the first save.
+  var currentLibraryId = null;
+
+  function renderLibraryPanel() {
+    var panel = document.getElementById("library-panel");
+    if (!panel) return;
+    panel.innerHTML = "";
+
+    // ── Header ──
+    var label = document.createElement("label");
+    label.textContent = "My dashboards";
+    panel.appendChild(label);
+
+    // ── Action row (Save / Import / Export) ──
+    var actions = document.createElement("div");
+    actions.className = "library-actions";
+
+    var saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.className = "btn primary";
+    saveBtn.textContent = currentLibraryId ? "Save" : "Save as\u2026";
+    saveBtn.title = currentLibraryId
+      ? "Update the current saved dashboard in place"
+      : "Save the current dashboard to your browser's library";
+    saveBtn.addEventListener("click", function () {
+      if (!currentDashboard || !window.Storage2) return;
+      if (currentLibraryId) {
+        // Update the existing entry — keeps its name and createdAt,
+        // refreshes updatedAt + the dashboard JSON.
+        var lib = Storage2.libraryList();
+        var existing = lib.filter(function (e) { return e.id === currentLibraryId; })[0];
+        var keepName = existing ? existing.name : currentDashboard.title;
+        Storage2.librarySave(currentDashboard, keepName, currentLibraryId);
+        showMessage("Saved.", false);
+      } else {
+        var suggested = currentDashboard.title || "Untitled dashboard";
+        var name = prompt("Save as:", suggested);
+        if (!name) return;
+        var newId = Storage2.librarySave(currentDashboard, name);
+        if (newId) {
+          currentLibraryId = newId;
+          showMessage("Saved \u201c" + name + "\u201d.", false);
+        } else {
+          showMessage("Save failed \u2014 localStorage may be full.", true);
+        }
+      }
+      renderLibraryPanel();
+    });
+    actions.appendChild(saveBtn);
+
+    var importBtn = document.createElement("button");
+    importBtn.type = "button";
+    importBtn.className = "btn";
+    importBtn.title = "Load a dashboard from a .json file on your computer";
+    importBtn.textContent = "Import";
+    importBtn.addEventListener("click", function () {
+      if (!window.FileIO) return;
+      FileIO.openPicker().then(function (d) {
+        var prepared = DashboardModel.ensureChartIds(d);
+        currentDashboard = prepared;
+        currentLibraryId = null;  // imported, no library slot yet
+        styleSelect.value = prepared.style;
+        titleInput.value = prepared.title;
+        setFooterEditorHtml(prepared.footer || "");
+        clearSelection();
+        closeInspector();
+        renderPreview();
+        renderLibraryPanel();
+        showMessage("Imported \u201c" + (prepared.title || "dashboard") + "\u201d.", false);
+      }, function (err) {
+        showMessage(err, true);
+      });
+    });
+    actions.appendChild(importBtn);
+
+    var exportBtn = document.createElement("button");
+    exportBtn.type = "button";
+    exportBtn.className = "btn";
+    exportBtn.title = "Download the current dashboard as a .json file";
+    exportBtn.textContent = "Export";
+    exportBtn.addEventListener("click", function () {
+      if (!currentDashboard || !window.FileIO) return;
+      FileIO.downloadAsJson(currentDashboard);
+    });
+    actions.appendChild(exportBtn);
+
+    panel.appendChild(actions);
+
+    // ── Saved entries list ──
+    if (!window.Storage2) return;
+    var entries = Storage2.libraryList();
+    if (entries.length === 0) {
+      var empty = document.createElement("p");
+      empty.className = "hint";
+      empty.style.margin = "6px 0 0";
+      empty.textContent = "No saved dashboards yet. Click Save to keep this one for later.";
+      panel.appendChild(empty);
+      return;
+    }
+
+    var list = document.createElement("div");
+    list.className = "library-list";
+    entries.forEach(function (entry) {
+      var row = document.createElement("div");
+      row.className = "library-row" + (entry.id === currentLibraryId ? " current" : "");
+
+      var main = document.createElement("button");
+      main.type = "button";
+      main.className = "library-row-main";
+      main.title = "Load this dashboard";
+      var name = document.createElement("div");
+      name.className = "library-row-name";
+      name.textContent = entry.name;
+      var date = document.createElement("div");
+      date.className = "library-row-date";
+      date.textContent = entry.updatedAt ? formatRelative(entry.updatedAt) : "";
+      main.appendChild(name);
+      main.appendChild(date);
+      main.addEventListener("click", function () {
+        var d = Storage2.libraryLoad(entry.id);
+        if (!d) {
+          showMessage("Couldn't load that dashboard \u2014 it may have been deleted.", true);
+          renderLibraryPanel();
+          return;
+        }
+        var prepared = DashboardModel.ensureChartIds(d);
+        currentDashboard = prepared;
+        currentLibraryId = entry.id;
+        styleSelect.value = prepared.style;
+        titleInput.value = prepared.title;
+        setFooterEditorHtml(prepared.footer || "");
+        clearSelection();
+        closeInspector();
+        renderPreview();
+        renderLibraryPanel();
+      });
+      row.appendChild(main);
+
+      // Per-row actions: rename, duplicate, delete
+      var rowActions = document.createElement("div");
+      rowActions.className = "library-row-actions";
+
+      var renameBtn = document.createElement("button");
+      renameBtn.type = "button";
+      renameBtn.className = "library-row-btn";
+      renameBtn.title = "Rename";
+      renameBtn.textContent = "\u270E"; // pencil
+      renameBtn.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        var next = prompt("Rename dashboard:", entry.name);
+        if (!next || next === entry.name) return;
+        Storage2.libraryRename(entry.id, next);
+        renderLibraryPanel();
+      });
+      rowActions.appendChild(renameBtn);
+
+      var dupBtn = document.createElement("button");
+      dupBtn.type = "button";
+      dupBtn.className = "library-row-btn";
+      dupBtn.title = "Duplicate";
+      dupBtn.textContent = "\u2398"; // copy
+      dupBtn.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        Storage2.libraryDuplicate(entry.id);
+        renderLibraryPanel();
+      });
+      rowActions.appendChild(dupBtn);
+
+      var delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.className = "library-row-btn library-row-del";
+      delBtn.title = "Delete";
+      delBtn.textContent = "\u00d7";
+      delBtn.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        if (!confirm("Delete \u201c" + entry.name + "\u201d? This cannot be undone.")) return;
+        Storage2.libraryDelete(entry.id);
+        if (entry.id === currentLibraryId) currentLibraryId = null;
+        renderLibraryPanel();
+      });
+      rowActions.appendChild(delBtn);
+
+      row.appendChild(rowActions);
+      list.appendChild(row);
+    });
+    panel.appendChild(list);
+  }
+
+  // Turn an ISO timestamp into a short human-readable "updated 3
+  // minutes ago" string. Falls back to a plain date for older entries.
+  function formatRelative(iso) {
+    var then = Date.parse(iso);
+    if (!then) return "";
+    var diffMs = Date.now() - then;
+    var sec = Math.floor(diffMs / 1000);
+    if (sec < 60)        return "just now";
+    var min = Math.floor(sec / 60);
+    if (min < 60)        return min + " min ago";
+    var hr = Math.floor(min / 60);
+    if (hr < 24)         return hr + " hr ago";
+    var day = Math.floor(hr / 24);
+    if (day < 7)         return day + " day" + (day === 1 ? "" : "s") + " ago";
+    // Older: show a plain YYYY-MM-DD
+    return iso.slice(0, 10);
   }
 
   // ── View mode ────────────────────────────────────────

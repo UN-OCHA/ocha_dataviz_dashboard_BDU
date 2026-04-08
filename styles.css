@@ -578,6 +578,106 @@ html, body {
 .sidebar .hint a:hover { text-decoration: underline; }
 .sidebar .hint strong { color: var(--text-primary); }
 
+/* ── Save / library panel in the sidebar ─────────────
+ * Holds the "Save", "Import", "Export" action row and the list of
+ * saved dashboards. Each row in the list is a clickable main area
+ * (loads the dashboard) plus a trio of small action buttons for
+ * rename / duplicate / delete. */
+.library-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-100);
+}
+.library-actions {
+  display: flex;
+  gap: var(--space-75);
+}
+.library-actions .btn {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: var(--space-75) var(--space-100);
+  font-size: var(--font-size-xs);
+}
+.library-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: var(--space-75);
+}
+.library-row {
+  display: flex;
+  align-items: stretch;
+  background: var(--bg-layer-1);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  transition: border-color var(--transition-fast),
+              background var(--transition-fast);
+}
+.library-row:hover { border-color: var(--border-field); }
+.library-row.current {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+.library-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  padding: var(--space-100) var(--space-150);
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.library-row-main:hover { background: var(--bg-hover); }
+.library-row-name {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.library-row-date {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.library-row-actions {
+  display: flex;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border-subtle);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+.library-row:hover .library-row-actions,
+.library-row.current .library-row-actions {
+  opacity: 1;
+}
+.library-row-btn {
+  width: 24px;
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.library-row-btn:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+.library-row-btn.library-row-del:hover {
+  background: var(--negative-bg);
+  color: var(--negative);
+}
+
 /* ── Collapsible section (sidebar CSV import, inspector chart options) ── */
 .collapsible-header {
   cursor: pointer;
