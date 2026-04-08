@@ -96,9 +96,34 @@
           renderPreview();
           return;
         }
-        rerenderFromCSV();
+        loadAutosaveOrCsv();
       });
     } else {
+      loadAutosaveOrCsv();
+    }
+
+    // Resolves the "no share link in URL" bootstrap path. Tries the
+    // auto-save slot first (so reloads never lose work), and falls
+    // back to parsing whatever CSV is in the textarea if nothing is
+    // saved yet. The auto-save is only consulted when it validates
+    // as a well-formed dashboard — anything corrupt is silently
+    // ignored and we fall through to the CSV.
+    function loadAutosaveOrCsv() {
+      if (window.Storage2) {
+        var stored = Storage2.loadAutosave();
+        if (stored) {
+          var v = DashboardModel.validate(stored);
+          if (v.ok) {
+            var d = DashboardModel.ensureChartIds(stored);
+            currentDashboard = d;
+            styleSelect.value = d.style;
+            titleInput.value = d.title;
+            setFooterEditorHtml(d.footer || "");
+            renderPreview();
+            return;
+          }
+        }
+      }
       rerenderFromCSV();
     }
 
@@ -523,6 +548,14 @@
 
   function renderPreview() {
     if (!currentDashboard) return;
+    // Stamp the updatedAt timestamp and schedule a debounced auto-save.
+    // View mode skips the touch + save so viewing a shared link doesn't
+    // overwrite the recipient's last auto-saved edit with the viewed
+    // dashboard.
+    if (!appRoot.classList.contains("view-mode")) {
+      if (DashboardModel.touch) DashboardModel.touch(currentDashboard);
+      if (window.Storage2) Storage2.scheduleAutoSave(currentDashboard);
+    }
     DashboardRenderer.render(currentDashboard, previewMount);
     if (selectedChartId) {
       var card = previewMount.querySelector('[data-chart-id="' + selectedChartId + '"]');

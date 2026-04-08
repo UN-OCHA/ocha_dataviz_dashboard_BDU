@@ -22,14 +22,32 @@ var DashboardModel = (function () {
   ];
 
   function empty() {
+    var now = new Date().toISOString();
     return {
       version: 1,
       title: "",
       style: "ocha",
       footer: "",
+      meta: {
+        createdAt: now,
+        updatedAt: now
+      },
       keyFigures: [],
       sections: []
     };
+  }
+
+  // Stamp the dashboard's meta.updatedAt with the current time. Called
+  // by main.js on every renderPreview() so the timestamp always
+  // reflects the latest edit. Also initialises meta + createdAt on
+  // older dashboards that were saved before this field existed.
+  function touch(d) {
+    if (!d) return d;
+    if (!d.meta) d.meta = {};
+    var now = new Date().toISOString();
+    if (!d.meta.createdAt) d.meta.createdAt = now;
+    d.meta.updatedAt = now;
+    return d;
   }
 
   // Generate a stable id for a chart so the editor can track it across re-renders.
@@ -383,6 +401,7 @@ var DashboardModel = (function () {
     STYLES: STYLES,
     CHART_TYPES: CHART_TYPES,
     empty: empty,
+    touch: touch,
     validate: validate,
     merge: merge,
     isValidStyle: isValidStyle,
