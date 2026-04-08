@@ -64,6 +64,12 @@
       });
     }
 
+    // Inject chart-type icons into the FAB menu. These are static inline
+    // SVGs (no network fetch), so they render synchronously on first load.
+    if (typeof ChartTypeIcons !== "undefined") {
+      ChartTypeIcons.refreshAll();
+    }
+
     // Bootstrap dashboard
     var saved = localStorage.getItem("ocha-dataviz-last-csv");
     textarea.value = saved || SampleData.csv;

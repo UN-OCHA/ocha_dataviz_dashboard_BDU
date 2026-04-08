@@ -1553,13 +1553,39 @@ body.section-resizing * {
   color: var(--accent);
 }
 .fab-menu-icon {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 20px;
-  text-align: center;
+  height: 20px;
   margin-right: var(--space-100);
   color: var(--text-tertiary);
   font-size: 14px;
+  flex-shrink: 0;
 }
+/* Chart-type SVG icons (ported from plugin .sidebar-btn). Size controlled
+ * by the wrapper, color inherited via currentColor on strokes + .fill-el
+ * on filled elements. Mirrors the plugin's color-inheritance pattern. */
+.chart-type-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+.chart-type-icon svg path,
+.chart-type-icon svg rect,
+.chart-type-icon svg circle,
+.chart-type-icon svg line,
+.chart-type-icon svg polyline {
+  stroke: currentColor;
+  fill: none;
+}
+.chart-type-icon svg .fill-el {
+  fill: currentColor;
+  stroke: none;
+}
+/* On hover the whole fab-menu-item changes color; the icon follows. */
+.fab-menu-item:hover .chart-type-icon { color: var(--accent); }
 
 /* Per-type minimum widths so blocks stay readable when reflowed. */
 .chart-type-donut, .chart-type-pie,
