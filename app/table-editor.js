@@ -107,23 +107,6 @@ var TableEditor = (function () {
       wrap.appendChild(input);
     }));
 
-    // ── Width within section (intra-section column span) ──
-    body.appendChild(field("Width within section", function (wrap) {
-      var hint = document.createElement("p");
-      hint.className = "hint";
-      hint.style.margin = "0 0 6px";
-      hint.textContent =
-        "How wide this chart is inside its section (1\u201312). " +
-        "Set less than 12 to put it side-by-side with another chart in the same row.";
-      wrap.appendChild(hint);
-      var initial = (typeof chart.span === "number" && chart.span >= 1 && chart.span <= 12)
-        ? chart.span : 12;
-      wrap.appendChild(buildColumnPicker(initial, function (n) {
-        chart.span = n;
-        ctx.onChange();
-      }));
-    }));
-
     // ── Chart type ───────────────────────────────
     body.appendChild(field("Chart type", function (wrap) {
       var select = document.createElement("select");
@@ -954,7 +937,47 @@ var TableEditor = (function () {
       wrap.appendChild(row);
     }));
 
-    // Width (12-col picker)
+    // Layout — vertical (stack) vs horizontal (side by side)
+    body.appendChild(field("Layout", function (wrap) {
+      var hint = document.createElement("p");
+      hint.className = "hint";
+      hint.style.margin = "0 0 6px";
+      hint.textContent =
+        "How charts are arranged inside this section. Horizontal will " +
+        "auto-grow the section width so every chart fits without cropping.";
+      wrap.appendChild(hint);
+
+      var row = document.createElement("div");
+      row.style.display = "flex";
+      row.style.gap = "6px";
+      var current = section.orientation === "horizontal" ? "horizontal" : "vertical";
+
+      function makeBtn(value, label, icon) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "btn" + (current === value ? " primary" : "");
+        b.style.flex = "1 1 0";
+        b.innerHTML = icon + " " + label;
+        b.addEventListener("click", function () {
+          if (section.orientation === value) return;
+          section.orientation = value;
+          ctx.onChange();
+          // Re-render this inspector so the toggle state updates
+          mountSection(container, ctx);
+        });
+        return b;
+      }
+      // Icons are unicode characters so no SVG assets needed:
+      //   ▤ (U+25A4) — horizontal fill (represents a vertical stack)
+      //   ▥ (U+25A5) — vertical fill (represents a horizontal row)
+      row.appendChild(makeBtn("vertical",   "Vertical",   "\u25a4"));
+      row.appendChild(makeBtn("horizontal", "Horizontal", "\u25a5"));
+      wrap.appendChild(row);
+    }));
+
+    // Width (12-col picker) — user still has manual control, but the
+    // minimum will auto-grow if the section has charts that need more
+    // room (see sectionMinSpan in dashboard-renderer.js).
     body.appendChild(field("Width", function (wrap) {
       wrap.appendChild(buildColumnPicker(section.span || 4, function (n) {
         section.span = n;

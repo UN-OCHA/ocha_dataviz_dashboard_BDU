@@ -260,29 +260,15 @@
     // grid's column step (column width + grid gap), update section.span on
     // the fly, and re-render. Releasing the pointer commits.
     previewEl.addEventListener("pointerdown", function (ev) {
-      // Section-level handle
       var sHandle = ev.target.closest(".section-resize");
-      if (sHandle) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        var sCard = sHandle.closest(".section-card");
-        if (!sCard || !currentDashboard) return;
-        var sIdx = parseInt(sCard.getAttribute("data-section-index"), 10);
-        if (isNaN(sIdx) || !currentDashboard.sections[sIdx]) return;
-        startSectionResize(sIdx, sCard, ev.clientX);
-        return;
-      }
-      // Chart-level handle (resize a chart's span inside .section-charts)
-      var cHandle = ev.target.closest(".chart-resize");
-      if (cHandle) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        var cCard = cHandle.closest(".chart-card[data-chart-id]");
-        if (!cCard || !currentDashboard) return;
-        var cId = cCard.getAttribute("data-chart-id");
-        if (!cId) return;
-        startChartResize(cId, cCard, ev.clientX);
-      }
+      if (!sHandle) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      var sCard = sHandle.closest(".section-card");
+      if (!sCard || !currentDashboard) return;
+      var sIdx = parseInt(sCard.getAttribute("data-section-index"), 10);
+      if (isNaN(sIdx) || !currentDashboard.sections[sIdx]) return;
+      startSectionResize(sIdx, sCard, ev.clientX);
     });
 
     // ── Floating + button to add new modules ─────────
@@ -418,78 +404,6 @@
     document.addEventListener("pointercancel", onUp);
 
     // Run one move with the initial position so the badge updates immediately
-    onMove({ clientX: startX });
-  }
-
-  // Drag-resize a chart's intra-section column span. Reads the parent
-  // .section-charts grid metrics so the snap matches the rendered grid
-  // exactly. Mirrors startSectionResize but at the chart level.
-  function startChartResize(chartId, chartCard, startX) {
-    if (!currentDashboard) return;
-    var loc = DashboardModel.findChart(currentDashboard, chartId);
-    if (!loc) return;
-    var chart = loc.chart;
-
-    var grid = chartCard.parentNode;
-    if (!grid || !grid.classList.contains("section-charts")) return;
-
-    var gridRect = grid.getBoundingClientRect();
-    var cardRect = chartCard.getBoundingClientRect();
-    var styles = window.getComputedStyle(grid);
-    var cols = (styles.gridTemplateColumns || "").trim().split(/\s+/).length || 12;
-    var gapPx = parseFloat(styles.columnGap || styles.gap || "0") || 0;
-    var totalGap = gapPx * (cols - 1);
-    var colW = (gridRect.width - totalGap) / cols;
-    var stepW = colW + gapPx;
-
-    var leftOffsetPx = cardRect.left - gridRect.left;
-    var startCol = Math.max(0, Math.round(leftOffsetPx / stepW));
-    var maxSpan = cols - startCol;
-
-    var currentSpan = (typeof chart.span === "number") ? chart.span : 12;
-
-    chartCard.classList.add("chart-resizing");
-    document.body.classList.add("chart-resizing");
-
-    function onMove(e) {
-      var x = e.clientX != null ? e.clientX : (e.touches && e.touches[0].clientX);
-      if (x == null) return;
-      var gridX = x - gridRect.left;
-      var rightCol = Math.round((gridX + gapPx / 2) / stepW);
-      var span = rightCol - startCol;
-      span = Math.max(1, Math.min(maxSpan, span));
-      if (span === currentSpan) return;
-      currentSpan = span;
-      chart.span = span;
-      renderPreview();
-      // Re-find the card (re-render destroyed it) and re-measure the grid
-      // in case the row layout changed.
-      chartCard = previewMount.querySelector(
-        '.chart-card[data-chart-id="' + chartId + '"]'
-      );
-      if (chartCard) {
-        chartCard.classList.add("chart-resizing");
-        var newGrid = chartCard.parentNode;
-        if (newGrid) {
-          gridRect = newGrid.getBoundingClientRect();
-          cardRect = chartCard.getBoundingClientRect();
-          leftOffsetPx = cardRect.left - gridRect.left;
-          startCol = Math.max(0, Math.round(leftOffsetPx / stepW));
-          maxSpan = cols - startCol;
-        }
-      }
-    }
-    function onUp() {
-      document.removeEventListener("pointermove", onMove);
-      document.removeEventListener("pointerup", onUp);
-      document.removeEventListener("pointercancel", onUp);
-      document.body.classList.remove("chart-resizing");
-      renderPreview();
-    }
-    document.addEventListener("pointermove", onMove);
-    document.addEventListener("pointerup", onUp);
-    document.addEventListener("pointercancel", onUp);
-
     onMove({ clientX: startX });
   }
 

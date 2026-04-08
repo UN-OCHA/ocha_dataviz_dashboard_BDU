@@ -174,12 +174,19 @@ var DashboardModel = (function () {
   }
 
   // Add a brand-new section with one starter chart.
+  //
+  // Sections have an optional `orientation` field ("vertical" | "horizontal")
+  // that controls how their charts are laid out. Defaults to "vertical" —
+  // charts stack top to bottom. Setting it to "horizontal" arranges them
+  // side by side in a flex row; the renderer's sectionMinSpan() auto-grows
+  // the section width to accommodate every chart without cropping.
   function addSection(d, opts) {
     opts = opts || {};
     if (!Array.isArray(d.sections)) d.sections = [];
     var section = {
       title: opts.title || "New section",
       text: opts.text || "",
+      orientation: opts.orientation || "vertical",
       charts: []
     };
     d.sections.push(section);

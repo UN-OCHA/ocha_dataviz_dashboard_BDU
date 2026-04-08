@@ -350,8 +350,12 @@ var DashboardRenderer = (function () {
   // breakpoint and lays out at native pixel sizes. A ResizeObserver
   // re-renders the chart whenever the card width changes, so charts
   // genuinely adapt to their container instead of being CSS-scaled.
-  function buildChartCard(chart, sectionSpan, styleName, chartSpan) {
-    if (chartSpan == null) chartSpan = 12;
+  //
+  // Layout is controlled at the SECTION level (vertical or horizontal flex
+  // row). There's no per-chart span anymore — charts share the section
+  // width equally in horizontal mode, and fill the section width in
+  // vertical mode.
+  function buildChartCard(chart, sectionSpan, styleName) {
     var card = document.createElement("div");
     card.className = "chart-card chart-type-" + chart.type;
     if (chart.id) card.setAttribute("data-chart-id", chart.id);
@@ -369,9 +373,6 @@ var DashboardRenderer = (function () {
       var pp = document.createElement("p");
       pp.className = "chart-text";
       pp.textContent = (chart.config && chart.config.text) || "";
-      // text cards still get a resize handle so the user can pin a
-      // text-block alongside a chart in the same row.
-      card.appendChild(makeChartResize(chartSpan));
       return card;
     }
 
@@ -379,29 +380,13 @@ var DashboardRenderer = (function () {
     holder.className = "chart-svg-holder";
     card.appendChild(holder);
 
-    // Initial pixel width to render at: a rough estimate based on the
-    // section's column span × the chart's intra-section span. The
-    // ResizeObserver below re-renders at the real measured width once
-    // the card lays out for real.
-    var firstPassW = Math.round(chartWidthForSpan(sectionSpan) * (chartSpan / 12));
-    paintChart(holder, chart, styleName, firstPassW);
+    // First-pass render at the section's full width — ResizeObserver
+    // below will re-render at the real measured width once the card lays
+    // out for real (accounting for horizontal flex-split siblings).
+    paintChart(holder, chart, styleName, chartWidthForSpan(sectionSpan));
     observeAndRender(holder, chart, styleName);
 
-    // In-section resize handle (only meaningful when the section has more
-    // than one chart side-by-side, but cheap to render either way).
-    card.appendChild(makeChartResize(chartSpan));
-
     return card;
-  }
-
-  // Right-edge resize handle on a chart card. Mirrors the section-level
-  // handle but works against the parent .section-charts grid.
-  function makeChartResize(chartSpan) {
-    var resize = document.createElement("div");
-    resize.className = "chart-resize";
-    resize.title = "Drag to resize · " + chartSpan + " of 12";
-    resize.innerHTML = '<span class="chart-resize-grip" aria-hidden="true"></span>';
-    return resize;
   }
 
   // Render or re-render a chart's SVG inside the given holder at a target
@@ -614,18 +599,11 @@ var DashboardRenderer = (function () {
 
     var charts = section.charts || [];
     if (charts.length > 0) {
+      var orientation = section.orientation === "horizontal" ? "horizontal" : "vertical";
       var inner = document.createElement("div");
-      inner.className = "section-charts";
+      inner.className = "section-charts orientation-" + orientation;
       charts.forEach(function (chart) {
-        // Each chart's intra-section span (1-12). Default 12 = full width,
-        // which preserves the previous "stack vertically" behaviour.
-        var chartSpan = (typeof chart.span === "number" && chart.span >= 1 && chart.span <= 12)
-          ? Math.round(chart.span)
-          : 12;
-        var cardEl = buildChartCard(chart, span, styleName, chartSpan);
-        cardEl.style.gridColumn = "span " + chartSpan;
-        cardEl.classList.add("chart-span-" + chartSpan);
-        inner.appendChild(cardEl);
+        inner.appendChild(buildChartCard(chart, span, styleName));
       });
       card.appendChild(inner);
     }
@@ -716,12 +694,27 @@ var DashboardRenderer = (function () {
     return spanForWidth(px);
   }
 
-  // Minimum span the section needs based on its content.
+  // Minimum span the section needs based on its content + layout.
+  //
+  //   - Vertical sections (default): max(chartMinSpan) — the widest chart
+  //     sets the floor, because every chart takes the full section width.
+  //   - Horizontal sections: sum(chartMinSpan), capped at 12. Charts share
+  //     the row width, so the section needs to be wide enough to give
+  //     each chart its own minimum allotment without cropping.
   function sectionMinSpan(section) {
     var charts = section.charts || [];
+    if (charts.length === 0) return 1;
+    var isHorizontal = section.orientation === "horizontal";
+    if (isHorizontal) {
+      var total = 0;
+      for (var i = 0; i < charts.length; i++) {
+        total += chartMinSpan(charts[i]);
+      }
+      return Math.max(1, Math.min(12, total));
+    }
     var min = 1;
-    for (var i = 0; i < charts.length; i++) {
-      var s = chartMinSpan(charts[i]);
+    for (var j = 0; j < charts.length; j++) {
+      var s = chartMinSpan(charts[j]);
       if (s > min) min = s;
     }
     return min;
