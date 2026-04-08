@@ -1182,14 +1182,19 @@ input[type="range"]::-moz-range-thumb {
   flex: 1 1 0;
   min-width: 0;
 }
-/* Divider line between stacked vertical charts only. Horizontal layout
- * uses the gap instead; a top border there would only paint on one of
- * two siblings and look awkward. */
+/* Divider line between adjacent charts in both orientations. Vertical
+ * stacks get a horizontal top-border; horizontal rows get a vertical
+ * left-border separator that sits in the gap. */
 .section-charts.orientation-vertical > .chart-card:not(:first-child) {
   padding-top: var(--space-200);
   border-top: 1px solid var(--border-subtle);
   width: 100%;
   max-width: 100%;
+  box-sizing: border-box;
+}
+.section-charts.orientation-horizontal > .chart-card:not(:first-child) {
+  padding-left: var(--space-200);
+  border-left: 1px solid var(--border-subtle);
   box-sizing: border-box;
 }
 
