@@ -86,7 +86,9 @@ var TableEditor = (function () {
         '<div class="subtle">Chart</div>' +
         '<h2>' + escapeAttr(chart.title || "(untitled)") + '</h2>' +
       '</div>' +
-      '<button class="btn icon" id="te-close" title="Close">\u2715</button>';
+      '<button class="btn icon" id="te-close" title="Close"><span class="ui-icon" data-ui-icon="close">' +
+        (typeof UiIcons !== "undefined" ? UiIcons.svg("close") : "\u2715") +
+      '</span></button>';
     container.appendChild(head);
 
     var body = document.createElement("div");
@@ -675,7 +677,9 @@ var TableEditor = (function () {
         '<div class="subtle">Module</div>' +
         '<h2>Key figures</h2>' +
       '</div>' +
-      '<button class="btn icon" id="te-close" title="Close">\u2715</button>';
+      '<button class="btn icon" id="te-close" title="Close"><span class="ui-icon" data-ui-icon="close">' +
+        (typeof UiIcons !== "undefined" ? UiIcons.svg("close") : "\u2715") +
+      '</span></button>';
     container.appendChild(head);
 
     var body = document.createElement("div");
@@ -830,7 +834,9 @@ var TableEditor = (function () {
         '<div class="subtle">Section text</div>' +
         '<h2>' + escapeAttr(section.title || "(untitled section)") + '</h2>' +
       '</div>' +
-      '<button class="btn icon" id="te-close" title="Close">\u2715</button>';
+      '<button class="btn icon" id="te-close" title="Close"><span class="ui-icon" data-ui-icon="close">' +
+        (typeof UiIcons !== "undefined" ? UiIcons.svg("close") : "\u2715") +
+      '</span></button>';
     container.appendChild(head);
 
     var body = document.createElement("div");
@@ -899,7 +905,9 @@ var TableEditor = (function () {
         '<div class="subtle">Section</div>' +
         '<h2>' + escapeAttr(section.title || "(untitled section)") + '</h2>' +
       '</div>' +
-      '<button class="btn icon" id="te-close" title="Close">\u2715</button>';
+      '<button class="btn icon" id="te-close" title="Close"><span class="ui-icon" data-ui-icon="close">' +
+        (typeof UiIcons !== "undefined" ? UiIcons.svg("close") : "\u2715") +
+      '</span></button>';
     container.appendChild(head);
 
     var body = document.createElement("div");
@@ -952,12 +960,15 @@ var TableEditor = (function () {
       row.style.gap = "6px";
       var current = section.orientation === "horizontal" ? "horizontal" : "vertical";
 
-      function makeBtn(value, label, icon) {
+      function makeBtn(value, label, role) {
         var b = document.createElement("button");
         b.type = "button";
         b.className = "btn" + (current === value ? " primary" : "");
         b.style.flex = "1 1 0";
-        b.innerHTML = icon + " " + label;
+        var icon = (typeof UiIcons !== "undefined")
+          ? '<span class="ui-icon" data-ui-icon="' + role + '">' + UiIcons.svg(role) + '</span>'
+          : "";
+        b.innerHTML = icon + " <span>" + label + "</span>";
         b.addEventListener("click", function () {
           if (section.orientation === value) return;
           section.orientation = value;
@@ -967,11 +978,8 @@ var TableEditor = (function () {
         });
         return b;
       }
-      // Icons are unicode characters so no SVG assets needed:
-      //   ▤ (U+25A4) — horizontal fill (represents a vertical stack)
-      //   ▥ (U+25A5) — vertical fill (represents a horizontal row)
-      row.appendChild(makeBtn("vertical",   "Vertical",   "\u25a4"));
-      row.appendChild(makeBtn("horizontal", "Horizontal", "\u25a5"));
+      row.appendChild(makeBtn("vertical",   "Vertical",   "layout-vertical"));
+      row.appendChild(makeBtn("horizontal", "Horizontal", "layout-horizontal"));
       wrap.appendChild(row);
     }));
 

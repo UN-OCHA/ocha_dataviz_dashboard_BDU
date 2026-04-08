@@ -48,6 +48,22 @@
       });
     }
 
+    // Kick off the UI icon prefetch. Every editor-chrome icon comes
+    // from the OCHA humanitarian icons GitHub repo; we fire the fetch
+    // here (it runs in parallel with the rest of bootstrap) and once
+    // it resolves we re-inject every [data-ui-icon] element on the
+    // page so the unicode fallback glyphs get upgraded to real SVGs.
+    if (typeof UiIcons !== "undefined") {
+      UiIcons.warmup().then(function () {
+        UiIcons.refreshAll();
+        // Dynamic elements (card arrows, FAB menu items) are rebuilt
+        // as part of the preview render, so re-render once to pick up
+        // the now-cached icons. Safe to call even if currentDashboard
+        // hasn't been set yet — renderPreview() is a no-op in that case.
+        if (currentDashboard) renderPreview();
+      });
+    }
+
     // Bootstrap dashboard
     var saved = localStorage.getItem("ocha-dataviz-last-csv");
     textarea.value = saved || SampleData.csv;

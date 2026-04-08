@@ -70,7 +70,9 @@ var IconPicker = (function () {
     clearBtn.setAttribute("role", "button");
     clearBtn.setAttribute("aria-label", "Remove");
     clearBtn.title = "Remove";
-    clearBtn.textContent = "\u2715";
+    clearBtn.innerHTML = (typeof UiIcons !== "undefined")
+      ? '<span class="ui-icon" data-ui-icon="remove">' + UiIcons.svg("remove") + "</span>"
+      : "\u2715";
     clearBtn.addEventListener("click", function (ev) {
       ev.stopPropagation();
       ev.preventDefault();
@@ -104,7 +106,9 @@ var IconPicker = (function () {
     panelClose.className = "picker2-panel-close";
     panelClose.title = "Close";
     panelClose.setAttribute("aria-label", "Close picker");
-    panelClose.textContent = "\u00d7";
+    panelClose.innerHTML = (typeof UiIcons !== "undefined")
+      ? '<span class="ui-icon" data-ui-icon="close">' + UiIcons.svg("close") + "</span>"
+      : "\u00d7";
     panelClose.addEventListener("click", close);
     panelHead.appendChild(panelClose);
 
@@ -137,7 +141,10 @@ var IconPicker = (function () {
       refreshBtn = document.createElement("button");
       refreshBtn.type = "button";
       refreshBtn.className = "picker2-refresh";
-      refreshBtn.innerHTML = "\u21bb&nbsp;Refresh from GitHub";
+      var refreshIcon = (typeof UiIcons !== "undefined")
+        ? '<span class="ui-icon" data-ui-icon="refresh">' + UiIcons.svg("refresh") + "</span>"
+        : "\u21bb";
+      refreshBtn.innerHTML = refreshIcon + "&nbsp;Refresh from GitHub";
       refreshBtn.title = "Re-download metadata and icons from the GitHub repo";
       refreshBtn.addEventListener("click", function () {
         status.textContent = "Refreshing\u2026";
@@ -333,7 +340,10 @@ var IconPicker = (function () {
     // ── Trigger render ────────────────────────────────
     function renderTrigger() {
       if (!current) {
-        thumb.innerHTML = '<span class="picker2-trigger-plus">+</span>';
+        var plusIcon = (typeof UiIcons !== "undefined")
+          ? '<span class="ui-icon" data-ui-icon="add">' + UiIcons.svg("add") + "</span>"
+          : '<span class="picker2-trigger-plus">+</span>';
+        thumb.innerHTML = plusIcon;
         triggerLabel.textContent = mode === "flag" ? "Add flag" : "Add icon";
         clearBtn.style.display = "none";
         trigger.classList.remove("has-value");

@@ -329,17 +329,30 @@ var DashboardRenderer = (function () {
   }
 
   // ── Reorder arrows + duplicate button (visible on hover) ───
+  // Uses humanitarian icons via UiIcons (Expand-up/down/left/right + Copy)
+  // with unicode fallbacks baked into UiIcons.svg() so the buttons render
+  // correctly even before the icon cache has warmed up.
   function makeArrows(direction, indexLabel) {
     var arrows = document.createElement("div");
     arrows.className = "card-arrows " + (direction === "horizontal" ? "arrows-h" : "arrows-v");
-    var leftSym  = direction === "horizontal" ? "\u25c2" : "\u25b4";
-    var rightSym = direction === "horizontal" ? "\u25b8" : "\u25be";
-    var inner = '<button class="card-arrow" data-move="up" title="Move earlier">' + leftSym + '</button>';
+    var upRole   = direction === "horizontal" ? "arrow-left"  : "arrow-up";
+    var downRole = direction === "horizontal" ? "arrow-right" : "arrow-down";
+    var upIcon   = (typeof UiIcons !== "undefined")
+      ? '<span class="ui-icon" data-ui-icon="' + upRole + '">' + UiIcons.svg(upRole) + '</span>'
+      : (direction === "horizontal" ? "\u25c2" : "\u25b4");
+    var downIcon = (typeof UiIcons !== "undefined")
+      ? '<span class="ui-icon" data-ui-icon="' + downRole + '">' + UiIcons.svg(downRole) + '</span>'
+      : (direction === "horizontal" ? "\u25b8" : "\u25be");
+    var dupIcon  = (typeof UiIcons !== "undefined")
+      ? '<span class="ui-icon" data-ui-icon="copy">' + UiIcons.svg("copy") + '</span>'
+      : "\u2398";
+
+    var inner = '<button class="card-arrow" data-move="up" title="Move earlier">' + upIcon + '</button>';
     if (indexLabel != null) {
       inner += '<span class="card-index">' + indexLabel + '</span>';
     }
-    inner += '<button class="card-arrow" data-move="down" title="Move later">' + rightSym + '</button>';
-    inner += '<button class="card-arrow card-arrow-dup" data-action="duplicate" title="Duplicate">\u2398</button>';
+    inner += '<button class="card-arrow" data-move="down" title="Move later">' + downIcon + '</button>';
+    inner += '<button class="card-arrow card-arrow-dup" data-action="duplicate" title="Duplicate">' + dupIcon + '</button>';
     arrows.innerHTML = inner;
     return arrows;
   }
@@ -612,7 +625,10 @@ var DashboardRenderer = (function () {
     var addBtn = document.createElement("button");
     addBtn.className = "section-add-chart";
     addBtn.setAttribute("data-add-chart-section", String(sectionIndex));
-    addBtn.innerHTML = "+ Add chart to this section";
+    var addIcon = (typeof UiIcons !== "undefined")
+      ? '<span class="ui-icon" data-ui-icon="add">' + UiIcons.svg("add") + '</span>'
+      : "+";
+    addBtn.innerHTML = addIcon + ' <span>Add chart to this section</span>';
     card.appendChild(addBtn);
 
     // Right-edge resize handle. Drag to change the section's column span

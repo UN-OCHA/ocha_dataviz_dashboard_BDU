@@ -37,6 +37,7 @@
   <script src="app/svg-parser.js" defer></script>
   <script src="app/icon-loader.js" defer></script>
   <script src="app/flag-loader.js" defer></script>
+  <script src="app/ui-icons.js" defer></script>
   <script src="app/icon-picker.js" defer></script>
   <script src="app/dashboard-renderer.js" defer></script>
   <script src="app/sample-data.js" defer></script>
@@ -49,17 +50,31 @@
   <div class="app">
     <div class="topbar">
       <div class="topbar-left">
-        <button class="btn icon sidebar-toggle" id="btn-sidebar-toggle" title="Hide sidebar" aria-label="Toggle sidebar">☰</button>
+        <button class="btn icon sidebar-toggle" id="btn-sidebar-toggle" title="Hide sidebar" aria-label="Toggle sidebar">
+          <span class="ui-icon" data-ui-icon="menu"></span>
+        </button>
         <div>
           <h1>OCHA Humanitarian DataViz</h1>
           <div class="subtitle">Dashboard editor &middot; Beta</div>
         </div>
       </div>
       <div class="topbar-actions">
-        <button class="btn" id="btn-auto-layout" title="Auto-arrange sections so each row fills the full dashboard width">Auto layout</button>
-        <button class="btn" id="btn-png" title="Download the dashboard as a PNG image">Download PNG</button>
-        <button class="btn" id="btn-share" title="Copy a shareable link that contains the whole dashboard">Share link</button>
-        <button class="btn primary" id="btn-pdf" title="Open the print preview to fit the dashboard on A4 and save as a vector PDF">Print / PDF…</button>
+        <button class="btn" id="btn-auto-layout" title="Auto-arrange sections so each row fills the full dashboard width">
+          <span class="ui-icon" data-ui-icon="apps"></span>
+          <span>Auto layout</span>
+        </button>
+        <button class="btn" id="btn-png" title="Download the dashboard as a PNG image">
+          <span class="ui-icon" data-ui-icon="download"></span>
+          <span>Download PNG</span>
+        </button>
+        <button class="btn" id="btn-share" title="Copy a shareable link that contains the whole dashboard">
+          <span class="ui-icon" data-ui-icon="share"></span>
+          <span>Share link</span>
+        </button>
+        <button class="btn primary" id="btn-pdf" title="Open the print preview to fit the dashboard on A4 and save as a vector PDF">
+          <span class="ui-icon" data-ui-icon="print"></span>
+          <span>Print / PDF…</span>
+        </button>
       </div>
     </div>
 
@@ -84,7 +99,10 @@
         <div class="footer-editor">
           <div class="footer-toolbar" role="toolbar" aria-label="Footer formatting">
             <button type="button" class="footer-tool" data-cmd="bold" title="Bold (Ctrl/Cmd+B)"><strong>B</strong></button>
-            <button type="button" class="footer-tool" data-cmd="link" title="Add or edit link">🔗 Link</button>
+            <button type="button" class="footer-tool" data-cmd="link" title="Add or edit link">
+              <span class="ui-icon" data-ui-icon="link"></span>
+              <span>Link</span>
+            </button>
             <button type="button" class="footer-tool" data-cmd="unlink" title="Remove link">⛓ Unlink</button>
           </div>
           <div id="footer-input" class="footer-input" contenteditable="true" data-placeholder="e.g. Source: OCHA · Read more · Updated April 2026"></div>
@@ -121,7 +139,9 @@
 
     <aside id="inspector" class="inspector"></aside>
 
-    <button class="fab-add" id="fab-add" title="Add a new section" aria-label="Add section">+</button>
+    <button class="fab-add" id="fab-add" title="Add a new section" aria-label="Add section">
+      <span class="ui-icon" data-ui-icon="add"></span>
+    </button>
     <div class="fab-menu" id="fab-menu" role="menu">
       <div class="fab-menu-section">Add a new section</div>
       <button class="fab-menu-item" data-add-section="empty">      <span class="fab-menu-icon">⊞</span> Empty section</button>
