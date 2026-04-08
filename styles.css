@@ -283,6 +283,46 @@ html, body {
   box-shadow: var(--md-elevation-3);
 }
 
+/* ── View mode — clean, read-only viewer ─────────
+ * Activated when the URL hash starts with #v=... . Hides every
+ * editor-chrome element and keeps only the topbar title, the
+ * "Edit a copy" button, and the preview. The dashboard itself is
+ * also painted in .export-mode so hover outlines, resize handles,
+ * arrows, and add buttons all disappear. */
+.app.view-mode .sidebar,
+.app.view-mode .inspector,
+.app.view-mode .fab-add,
+.app.view-mode .fab-menu,
+.app.view-mode #btn-sidebar-toggle,
+.app.view-mode #btn-auto-layout,
+.app.view-mode #btn-png,
+.app.view-mode #btn-share,
+.app.view-mode #btn-pdf {
+  display: none !important;
+}
+.app.view-mode .card-arrows,
+.app.view-mode .section-add-chart,
+.app.view-mode .section-resize,
+.app.view-mode .section-resize-badge,
+.app.view-mode .chart-card:hover,
+.app.view-mode .section-card:hover,
+.app.view-mode .kpi-row:hover {
+  display: none !important;
+}
+.app.view-mode .chart-card,
+.app.view-mode .section-card,
+.app.view-mode .kpi-row {
+  cursor: default !important;
+}
+.app.view-mode .chart-card:hover {
+  background: transparent !important;
+}
+/* Give the view-mode dashboard a bit more breathing room and drop
+ * the hover affordances that would otherwise hint at editability. */
+.app.view-mode .preview {
+  padding: var(--space-500);
+}
+
 /* ── Topbar (ported from plugin #header pattern) ── */
 .topbar {
   grid-area: topbar;

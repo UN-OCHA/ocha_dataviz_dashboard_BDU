@@ -46,41 +46,63 @@ var ShareLink = (function () {
     }
   }
 
-  async function encode(dashboard) {
+  // Two URL shapes, both carrying the same gzip+base64 payload:
+  //   #d=<payload>  — edit link (default). Opening loads the dashboard
+  //                   into the full editor with sidebar + inspector.
+  //   #v=<payload>  — view-only link. Opening loads the dashboard in
+  //                   view mode: sidebar, inspector, resize handles,
+  //                   card arrows, and FAB are all hidden so the
+  //                   recipient sees a clean dashboard. They can click
+  //                   "Edit a copy" to flip into edit mode with the
+  //                   same payload.
+  async function encodePayload(dashboard) {
     var json = JSON.stringify(dashboard);
     var bytes = new TextEncoder().encode(json);
     var comp = await compress(bytes);
-    var b64 = base64urlEncode(comp);
+    return base64urlEncode(comp);
+  }
+
+  async function encode(dashboard) {
+    var b64 = await encodePayload(dashboard);
     return location.origin + location.pathname + "#d=" + b64;
   }
 
+  async function encodeViewLink(dashboard) {
+    var b64 = await encodePayload(dashboard);
+    return location.origin + location.pathname + "#v=" + b64;
+  }
+
+  // Decode whatever payload is in the current URL hash. Returns
+  //   { dashboard, mode }          on success
+  //   null                         when the hash isn't a share link
+  // `mode` is "edit" for #d= links and "view" for #v= links.
   async function decodeFromHash() {
     var hash = location.hash || "";
-    var m = hash.match(/#d=([A-Za-z0-9\-_]+)/);
+    var m = hash.match(/#(d|v)=([A-Za-z0-9\-_]+)/);
     if (!m) return null;
+    var mode = m[1] === "v" ? "view" : "edit";
     try {
-      var bytes = base64urlDecode(m[1]);
+      var bytes = base64urlDecode(m[2]);
       var dec = await decompress(bytes);
       var json = new TextDecoder().decode(dec);
       var d = JSON.parse(json);
       var v = DashboardModel.validate(d);
-      return v.ok ? d : null;
+      if (!v.ok) return null;
+      return { dashboard: d, mode: mode };
     } catch (err) {
       console.error("Failed to decode share link:", err);
       return null;
     }
   }
 
-  // Sync versions that wrap the async calls for convenience in simple handlers.
+  // Sync version that wraps the async call for simple click handlers.
   function encodeSync(dashboard, cb) {
     encode(dashboard).then(cb);
   }
 
   return {
-    encode: function (d) {
-      // Main.js uses this with .then() in a clipboard callback, so return a promise.
-      return encode(d);
-    },
+    encode: encode,
+    encodeViewLink: encodeViewLink,
     decodeFromHash: decodeFromHash,
     encodeSync: encodeSync
   };

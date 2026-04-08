@@ -74,15 +74,25 @@
     var saved = localStorage.getItem("ocha-dataviz-last-csv");
     textarea.value = saved || SampleData.csv;
 
-    // If a share link is present, load that and skip CSV parsing
-    if (window.ShareLink && location.hash.indexOf("#d=") === 0) {
-      ShareLink.decodeFromHash().then(function (d) {
-        if (d) {
-          d = DashboardModel.ensureChartIds(d);
+    // If a share link is present, load that and skip CSV parsing.
+    // ShareLink.decodeFromHash() now returns { dashboard, mode } where
+    // mode is "edit" (#d=...) or "view" (#v=...). In view mode we
+    // load the dashboard and flip the editor into read-only chrome —
+    // sidebar, inspector, resize handles, card arrows, and FAB all
+    // hide. A small "Edit a copy" button lets the viewer escape to
+    // the full editor with the same payload.
+    var hasShareLink = window.ShareLink && /#(d|v)=/.test(location.hash);
+    if (hasShareLink) {
+      ShareLink.decodeFromHash().then(function (res) {
+        if (res && res.dashboard) {
+          var d = DashboardModel.ensureChartIds(res.dashboard);
           currentDashboard = d;
           styleSelect.value = d.style;
           titleInput.value = d.title;
           setFooterEditorHtml(d.footer || "");
+          if (res.mode === "view") {
+            enterViewMode();
+          }
           renderPreview();
           return;
         }
@@ -195,10 +205,26 @@
     document.getElementById("btn-share").addEventListener("click", function () {
       if (!currentDashboard) return;
       if (!window.ShareLink) return;
-      ShareLink.encode(currentDashboard).then(function (url) {
+      // Offer the user a choice between an editable link and a view-
+      // only link. View-only opens the recipient into a clean,
+      // chrome-free viewer; edit opens the full editor with the same
+      // dashboard loaded.
+      var choice = window.confirm(
+        "Share as VIEW-ONLY link?\n\n" +
+        "OK    — View-only (recipient sees a clean dashboard)\n" +
+        "Cancel — Editable (recipient opens the full editor)"
+      );
+      var encoder = choice
+        ? ShareLink.encodeViewLink
+        : ShareLink.encode;
+      encoder(currentDashboard).then(function (url) {
         if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(url).then(function () {
-            showMessage("Share link copied to clipboard.", false);
+            showMessage(
+              (choice ? "View-only" : "Editable") +
+              " share link copied to clipboard.",
+              false
+            );
           }, function () {
             prompt("Copy this share link:", url);
           });
@@ -773,6 +799,38 @@
       }
       row.items.forEach(function (it) { it.section.span = it.min; });
     });
+  }
+
+  // ── View mode ────────────────────────────────────────
+  // Flip the editor into a read-only viewer. Hides the sidebar,
+  // inspector, FAB, and all editor chrome; adds a small "Edit a copy"
+  // button in the top-right so the viewer can jump into the editor
+  // with the same dashboard payload. Entered automatically when the
+  // URL hash starts with `#v=` (see bootstrap).
+  function enterViewMode() {
+    appRoot.classList.add("view-mode");
+    appRoot.classList.add("sidebar-collapsed");
+    appRoot.classList.remove("inspector-open");
+
+    // Add an "Edit a copy" button to the topbar if it doesn't exist
+    if (!document.getElementById("btn-edit-copy")) {
+      var editBtn = document.createElement("button");
+      editBtn.id = "btn-edit-copy";
+      editBtn.className = "btn primary";
+      editBtn.textContent = "Edit a copy";
+      editBtn.title = "Open this dashboard in the full editor";
+      editBtn.addEventListener("click", function () {
+        if (!currentDashboard || !window.ShareLink) return;
+        ShareLink.encode(currentDashboard).then(function (url) {
+          // Replace the #v= hash with #d= and reload so the full
+          // editor boots fresh without any view-mode state hanging
+          // around.
+          location.href = url;
+        });
+      });
+      var actions = document.querySelector(".topbar-actions");
+      if (actions) actions.insertBefore(editBtn, actions.firstChild);
+    }
   }
 
   function showMessage(text, isError) { showMessages([text], !!isError); }
