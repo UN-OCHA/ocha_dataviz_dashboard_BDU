@@ -304,8 +304,8 @@ html, body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 13px;
+  height: 13px;
   flex-shrink: 0;
   line-height: 0;
 }
@@ -316,27 +316,27 @@ html, body {
   overflow: visible;
 }
 .ui-icon-fallback {
-  font-size: 14px;
+  font-size: 12px;
   line-height: 1;
   color: inherit;
 }
-/* Sidebar toggle — slightly bigger icon since it lives in the topbar */
-.sidebar-toggle .ui-icon { width: 20px; height: 20px; }
+/* Sidebar toggle — needs slightly more presence in the topbar */
+.sidebar-toggle .ui-icon { width: 16px; height: 16px; }
 /* Topbar action buttons — icon sits left of the label with a small gap */
-.topbar-actions .btn .ui-icon { width: 16px; height: 16px; }
-/* FAB — large 28px icon centered in the 56px button */
-.fab-add .ui-icon { width: 28px; height: 28px; }
-/* Card arrows — 14px for the chip-sized move/duplicate buttons */
-.card-arrow .ui-icon { width: 14px; height: 14px; }
-/* Footer tool buttons (link) — compact 13px icon */
-.footer-tool .ui-icon { width: 13px; height: 13px; }
+.topbar-actions .btn .ui-icon { width: 13px; height: 13px; }
+/* FAB — centered in the 56px button, with comfortable breathing room */
+.fab-add .ui-icon { width: 22px; height: 22px; }
+/* Card arrows — 10px icon inside the 24px chip leaves ~7px padding around */
+.card-arrow .ui-icon { width: 10px; height: 10px; }
+/* Footer tool buttons (link) — compact 11px icon */
+.footer-tool .ui-icon { width: 11px; height: 11px; }
 /* Inspector close, picker close/clear, FAB menu chart-type glyphs */
-.btn.icon .ui-icon { width: 16px; height: 16px; }
-.picker2-panel-close .ui-icon { width: 18px; height: 18px; }
-.picker2-trigger-clear .ui-icon { width: 14px; height: 14px; }
-.picker2-refresh .ui-icon { width: 14px; height: 14px; }
+.btn.icon .ui-icon { width: 13px; height: 13px; }
+.picker2-panel-close .ui-icon { width: 14px; height: 14px; }
+.picker2-trigger-clear .ui-icon { width: 11px; height: 11px; }
+.picker2-refresh .ui-icon { width: 11px; height: 11px; }
 /* "Add icon" empty-state placeholder inside the trigger thumbnail */
-.picker2-trigger-thumb .ui-icon { width: 22px; height: 22px; color: var(--text-tertiary); }
+.picker2-trigger-thumb .ui-icon { width: 18px; height: 18px; color: var(--text-tertiary); }
 
 /* ── Buttons (M3 pattern — ported from plugin) ──── */
 .btn {
@@ -1308,7 +1308,7 @@ input[type="range"]::-moz-range-thumb {
               color var(--transition-fast),
               background var(--transition-fast);
 }
-.section-add-chart .ui-icon { width: 14px; height: 14px; }
+.section-add-chart .ui-icon { width: 11px; height: 11px; }
 .section-add-chart:hover {
   border-color: var(--accent);
   color: var(--accent);
