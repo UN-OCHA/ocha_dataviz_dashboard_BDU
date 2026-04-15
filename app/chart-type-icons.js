@@ -133,6 +133,20 @@ var ChartTypeIcons = (function () {
         '<rect x="18" y="22" width="8" height="2" rx="0.5" fill="currentColor" opacity="0.3"/>' +
         '<line x1="16" y1="2" x2="16" y2="13" stroke="currentColor" stroke-width="0.5" opacity="0.2"/>' +
         '<line x1="16" y1="15" x2="16" y2="26" stroke="currentColor" stroke-width="0.5" opacity="0.2"/>' +
+      '</svg>',
+
+    "timeline":
+      '<svg viewBox="0 0 32 32" fill="none" stroke-linecap="round" stroke-linejoin="round">' +
+        '<line x1="3" y1="16" x2="29" y2="16" stroke="currentColor" stroke-width="1.8"/>' +
+        '<circle cx="7" cy="16" r="2.5" class="fill-el"/>' +
+        '<circle cx="16" cy="16" r="2.5" class="fill-el"/>' +
+        '<circle cx="25" cy="16" r="2.5" class="fill-el"/>' +
+        '<rect x="4" y="6" width="6" height="2" rx="0.5" fill="currentColor" opacity="0.3"/>' +
+        '<rect x="13" y="6" width="6" height="2" rx="0.5" fill="currentColor" opacity="0.3"/>' +
+        '<rect x="22" y="6" width="6" height="2" rx="0.5" fill="currentColor" opacity="0.3"/>' +
+        '<rect x="4" y="23" width="6" height="2" rx="0.5" fill="currentColor" opacity="0.5"/>' +
+        '<rect x="13" y="23" width="6" height="2" rx="0.5" fill="currentColor" opacity="0.5"/>' +
+        '<rect x="22" y="23" width="6" height="2" rx="0.5" fill="currentColor" opacity="0.5"/>' +
       '</svg>'
   };
 

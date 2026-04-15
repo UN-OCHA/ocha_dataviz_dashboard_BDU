@@ -45,11 +45,14 @@ Treat any edit that touches one of these as a cross-tool flag:
   - Single-series:    `[{label, value}]`
   - Stacked:          `[{label, series, value}]` → reshaped to `{label, values[]}`
   - Sankey:           `[{label, series, value}]` → reshaped to `{source, target, value}`
+  - Timeline:         `[{date, label, text, iconRef}]` (date, label, text are
+    free-form strings; iconRef is a humanitarian icon key from the same
+    GitHub catalog everything else uses)
   - If any of these wire formats change, both tools need to agree.
 - **Chart type names**
   - `hbar`, `vbar`, `stacked-bar`, `stacked-col`, `donut`, `pie`, `bubble`,
-    `line`, `sankey`, `icon`, `table`, `keyfigures`. Renaming or adding a
-    type means both tools need to know about it.
+    `line`, `sankey`, `icon`, `table`, `keyfigures`, `timeline`. Renaming
+    or adding a type means both tools need to know about it.
 - **Chart engine semantics that aren't web-specific**
   - Donut/pie percentage calculation
   - Color palette assignment order

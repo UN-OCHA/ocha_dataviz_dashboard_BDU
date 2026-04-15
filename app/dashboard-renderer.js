@@ -155,6 +155,28 @@ var DashboardRenderer = (function () {
     return { data: labels, seriesNames: seriesNames };
   }
 
+  // Timeline rows have a different shape from the other charts:
+  //   { date, label, text, iconRef }
+  // where iconRef is the same humanitarian icon key the chart engine's
+  // keyfigures / hbar / stacked-bar code understand (resolved via
+  // IconLoader.getParsedSvg). Unlike other charts, the timeline is
+  // always "icon mode" when any row has iconRef — no iconColType
+  // switch to worry about.
+  function reshapeTimeline(data) {
+    return (data || []).map(function (d) {
+      var out = {
+        date: d.date || "",
+        label: d.label || "",
+        text: d.text || ""
+      };
+      if (d.iconRef && typeof IconLoader !== "undefined") {
+        var parsed = IconLoader.getParsedSvg(d.iconRef);
+        if (parsed) out._iconSvg = parsed;
+      }
+      return out;
+    });
+  }
+
   function reshapeSankey(data) {
     return data
       .filter(function (d) { return d.label && d.series; })
@@ -234,6 +256,10 @@ var DashboardRenderer = (function () {
       shaped = reshapeSankey(data);
       return R.render(chart.type, emptyTitle, shaped, config);
     }
+    if (chart.type === "timeline") {
+      shaped = reshapeTimeline(data);
+      return R.render(chart.type, emptyTitle, shaped, config);
+    }
     shaped = reshapeSingle(data, iconColType);
     if (needsFixedBands) {
       return withFixedBandScale(function () {
@@ -248,7 +274,15 @@ var DashboardRenderer = (function () {
   // synchronous inside the render loop.
   function collectChartAssetKeys(chart) {
     var out = { icons: [], flags: [] };
-    if (!chart || !chart.config) return out;
+    if (!chart) return out;
+    // Timeline has a flat `iconRef` per row, no iconColType switch.
+    if (chart.type === "timeline") {
+      (chart.data || []).forEach(function (row) {
+        if (row && row.iconRef) out.icons.push(row.iconRef);
+      });
+      return out;
+    }
+    if (!chart.config) return out;
     var mode = chart.config.iconColType;
     if (mode !== "icons" && mode !== "flags") return out;
     (chart.data || []).forEach(function (row) {

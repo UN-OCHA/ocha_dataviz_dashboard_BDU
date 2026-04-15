@@ -18,7 +18,7 @@ var DashboardModel = (function () {
   var CHART_TYPES = [
     "hbar", "vbar", "stacked-bar", "stacked-col",
     "line", "donut", "pie", "bubble", "sankey",
-    "icon", "table", "keyfigures", "text"
+    "icon", "table", "keyfigures", "timeline", "text"
   ];
 
   function empty() {
@@ -291,6 +291,15 @@ var DashboardModel = (function () {
         { label: "Category C", value: 15 }
       ];
     }
+    if (type === "timeline") {
+      // Dated events: date text, headline label, short description.
+      // iconRef is optional and resolved at paint time like other row icons.
+      return [
+        { date: "Jan 2025", label: "Event one",   text: "Short description for the first event." },
+        { date: "Apr 2025", label: "Event two",   text: "Short description for the second event." },
+        { date: "Sep 2025", label: "Event three", text: "Short description for the third event." }
+      ];
+    }
     return [
       { label: "Item 1", value: 30 },
       { label: "Item 2", value: 50 },
@@ -311,6 +320,7 @@ var DashboardModel = (function () {
       "sankey": "New sankey",
       "icon": "New pictogram",
       "table": "New table",
+      "timeline": "New timeline",
       "text": "New text block"
     };
     return map[type] || "New chart";

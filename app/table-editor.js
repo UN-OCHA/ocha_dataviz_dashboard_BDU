@@ -39,6 +39,15 @@ var TableEditor = (function () {
         { key: "value", label: "Value", type: "number" }
       ];
     }
+    if (type === "timeline") {
+      // Timeline uses { date, label, text } — no numeric value. Icon
+      // assignment happens in the per-row icon section, not here.
+      return [
+        { key: "date",  label: "Date",        type: "text" },
+        { key: "label", label: "Label",       type: "text" },
+        { key: "text",  label: "Description", type: "text" }
+      ];
+    }
     if (type === "text") {
       return []; // text "charts" use config.text, not a data table
     }
@@ -356,7 +365,7 @@ var TableEditor = (function () {
   function chartSupportsRowIcons(type) {
     return type === "hbar" || type === "vbar" ||
            type === "stacked-bar" || type === "stacked-col" ||
-           type === "icon";
+           type === "icon" || type === "timeline";
   }
 
   // Build the "Icons / flags" section of the chart inspector. Lets the
@@ -370,6 +379,64 @@ var TableEditor = (function () {
   // The raw _iconSvg is injected by the renderer at paint time.
   function buildRowIconSection(chart, ctx) {
     var wrap = document.createElement("div");
+
+    // Timeline has a simpler icon model: each row's iconRef is a
+    // humanitarian icon key (no flags, no mode switch). Handle it
+    // with its own lightweight branch so we don't have to squeeze
+    // the icon-column semantics into a chart type that doesn't need
+    // them.
+    if (chart.type === "timeline") {
+      var lblT = document.createElement("label");
+      lblT.textContent = "Event icons (optional)";
+      wrap.appendChild(lblT);
+
+      var hintT = document.createElement("p");
+      hintT.className = "hint";
+      hintT.style.margin = "0 0 8px";
+      hintT.textContent =
+        "Attach a humanitarian icon to each event. Icons appear above " +
+        "(horizontal) or to the left of (vertical) each event marker.";
+      wrap.appendChild(hintT);
+
+      var tData = chart.data || [];
+      if (tData.length === 0) {
+        var emptyT = document.createElement("p");
+        emptyT.className = "hint";
+        emptyT.textContent = "Add events in the data table above to attach icons.";
+        wrap.appendChild(emptyT);
+        return wrap;
+      }
+
+      tData.forEach(function (row, idx) {
+        var rowWrap = document.createElement("div");
+        rowWrap.style.marginBottom = "8px";
+        var rowLabel = document.createElement("div");
+        rowLabel.className = "hint";
+        rowLabel.style.margin = "0 0 4px";
+        var parts = [];
+        if (row.date)  parts.push(row.date);
+        if (row.label) parts.push(row.label);
+        rowLabel.textContent = parts.join(" \u00b7 ") || ("Event " + (idx + 1));
+        rowWrap.appendChild(rowLabel);
+
+        var p = IconPicker.create({
+          mode: "icon",
+          current: row.iconRef || null,
+          accent: currentStyleAccent(ctx.dashboard),
+          onPick: function (key) {
+            row.iconRef = key;
+            ctx.onChange();
+          },
+          onClear: function () {
+            delete row.iconRef;
+            ctx.onChange();
+          }
+        });
+        rowWrap.appendChild(p.element);
+        wrap.appendChild(rowWrap);
+      });
+      return wrap;
+    }
 
     var lbl = document.createElement("label");
     lbl.textContent = "Icons / flags";
@@ -534,6 +601,17 @@ var TableEditor = (function () {
         ["vertical",   "Vertical stack"]
       ], ctx, "horizontal"));
       box.appendChild(sliderOption("Bubble spacing", chart, "bubbleSeparation", -100, 100, 5, ctx, 0));
+    }
+
+    if (t === "timeline") {
+      box.appendChild(selectOption("Layout", chart, "timelineOrientation", [
+        ["horizontal", "Horizontal (auto S-shape)"],
+        ["vertical",   "Vertical stack"]
+      ], ctx, "horizontal"));
+      // Event spacing drives the fold-into-S-shape threshold for the
+      // horizontal timeline: more spacing → fewer events per row →
+      // more rows. Range 60-250 px matches the plugin.
+      box.appendChild(sliderOption("Event spacing", chart, "timelineEventSpacing", 60, 250, 5, ctx, 90, "px"));
     }
 
     if (t === "sankey") {
