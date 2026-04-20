@@ -9,13 +9,13 @@ var SampleData = (function () {
   "use strict";
 
   var csv = [
-    "#dashboard, title=Example Country HNO 2026, style=hnrp",
+    "#dashboard, title=Example Country HNO 2026, style=ocha",
     "",
     "kpi_label,kpi_value,kpi_icon,kpi_unit",
-    "People in need,5200000,,",
-    "People targeted,3800000,,",
-    "Funding required,820000000,,USD",
-    "Partners,142,,",
+    "People in need,5200000,People-in-need,",
+    "People targeted,3800000,People-targeted,",
+    "Funding required,820000000,Fund,USD",
+    "Partners,142,Partnership,",
     "",
     "section,chart_type,chart_title,label,value,series,sort,note",
     "Overview,text,,\"Humanitarian needs remain concentrated in the northern regions, driven by conflict and recurring drought. The figures below summarise the most urgent sectors.\",,,,",

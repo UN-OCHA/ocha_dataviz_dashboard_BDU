@@ -152,7 +152,7 @@ var CSVParser = (function () {
       out.push({
         label: label,
         value: value,
-        icon: cell(row, map, "kpi_icon") || null,
+        iconKey: cell(row, map, "kpi_icon") || null,
         unit: cell(row, map, "kpi_unit") || null
       });
     }
