@@ -1,10 +1,3 @@
-/* ──────────────────────────────────────────────────────────────────
- * TEMPORARY FORK from ocha_dataviz_plugin v2026.0.2 (Phase 1 beta).
- * This file will be consolidated into ../shared/ during Phase 0 once
- * the online tool is validated. If you fix a bug here, apply the
- * same fix to the plugin copy in ocha_dataviz_plugin/client/.
- * ────────────────────────────────────────────────────────────────── */
-
 /**
  * ChartRegistry — Chart type registry, shared SVG utilities, styles & fonts.
  *
@@ -158,6 +151,145 @@ var ChartRegistry = (function () {
     value: "'Roboto Condensed', Arial, Helvetica, sans-serif"
   };
 
+  // ── Text-Width Estimation ──────────────────────────────
+  //
+  // Approximate per-character advance ratios for the two font families
+  // the plugin renders. Used by renderers to estimate label-column
+  // widths, wrap thresholds, and "does this value fit inside a bar
+  // segment" decisions, without needing canvas.measureText.
+  //
+  // Real measured advance for typical mixed-case English text:
+  //   Roboto regular:    ~0.55  (bold variant ~0.60)
+  //   Roboto Condensed:  ~0.46
+  //
+  // We use 0.47 for Condensed (a 1-pixel safety margin against
+  // ascender bearings on capital letters in very short labels).
+  //
+  // If `registry.FONTS` ever changes (different font stack), update
+  // these constants — they are the SINGLE SOURCE OF TRUTH for
+  // text-width estimation across all 14 chart types. Previously the
+  // 0.55 ratio was hardcoded in 13 places, and the mismatch with
+  // the actual Roboto Condensed glyph widths produced a visible
+  // ~15-20 px gap between the title's left edge and the longest
+  // chart label's left edge in stacked-bar / hbar / cluster charts.
+  registry.LABEL_ADVANCE = 0.47;         // fonts.label, fonts.value, footer, comments (Roboto Condensed)
+  registry.HEADING_ADVANCE = 0.50;       // fonts.heading regular (subtitle) — Roboto Regular avg ~0.50
+  registry.HEADING_BOLD_ADVANCE = 0.53;  // fonts.heading bold (title, KPI figures) — Roboto Bold avg ~0.52
+  // The HEADING_* values were previously 0.55 / 0.6 — calibrated
+  // pessimistically to guarantee text never overflows the wrap zone.
+  // The side effect was that titles wrapped 10-13 % earlier than the
+  // actual rendered Roboto could fit, so a chart at default Width 500
+  // visibly left whitespace at the right of every wrapped title /
+  // subtitle line. Lowering to real-Roboto averages makes wrapped lines
+  // fill the chart's container width as the user expects.
+
+  /**
+   * Approximate the rendered pixel width of a string at a given font
+   * size. Pass the advance constant matching the font being rendered:
+   *
+   *   R.LABEL_ADVANCE         for Roboto Condensed (chart text, footer)
+   *   R.HEADING_ADVANCE       for regular Roboto (subtitle)
+   *   R.HEADING_BOLD_ADVANCE  for bold Roboto (title)
+   *
+   * Defaults to LABEL_ADVANCE since that's the most common font in a
+   * chart. Returns 0 for null/undefined.
+   *
+   * @param {string|*} text
+   * @param {number} fontSize
+   * @param {number} [advance=LABEL_ADVANCE] one of the *_ADVANCE constants
+   * @returns {number} approximate pixel width
+   */
+  registry.measureTextWidth = function (text, fontSize, advance) {
+    if (text == null) return 0;
+    return String(text).length * fontSize * (advance || registry.LABEL_ADVANCE);
+  };
+
+  // Color used when a label is rendered in truncated form (wrapping
+  // hit the maxLines cap and the last line had to be shortened with
+  // an ellipsis). Bright red so the user spots the error at a glance
+  // and knows to widen the chart, shorten the label, or accept the
+  // ellipsis. Renderers apply this in place of `st.labelColor` only
+  // on the truncated lines themselves.
+  //
+  // The constant name (FADED_LABEL_COLOR) is retained for backwards
+  // compatibility with all the chart-* renderers that reference it;
+  // it is no longer "faded" — it's an error red.
+  registry.FADED_LABEL_COLOR = "#D32F2F";
+
+  // ── Label wrapping with overflow detection ─────────────
+  //
+  // The plugin's universal label-fit policy:
+  //   1. Try to fit the text in 1 line at the given fontSize/maxWidth.
+  //   2. If too wide, wrap into up to `maxLines` lines (paragraph style).
+  //   3. If even at maxLines the text doesn't fit, return a best-effort
+  //      wrap with the last line shortened + "…" AND set `truncated:
+  //      true` so the renderer can fade that line and emit a warning.
+  //
+  // Replaces the old per-renderer `R.truncate(text, maxLabelChars)`
+  // pattern, which silently inserted "…" without telling the user.
+  //
+  // @param {string}  text
+  // @param {number}  fontSize
+  // @param {number}  maxWidth     in px
+  // @param {number}  maxLines     hard cap on lines (3 by default)
+  // @param {number}  [advance]    one of the *_ADVANCE constants;
+  //                                defaults to LABEL_ADVANCE
+  // @returns {{lines: string[], fits: boolean, truncated: boolean}}
+  registry.wrapToFit = function (text, fontSize, maxWidth, maxLines, advance) {
+    if (text == null || text === "") {
+      return { lines: [], fits: true, truncated: false };
+    }
+    maxLines = maxLines || 3;
+    advance = advance || registry.LABEL_ADVANCE;
+    // Use the existing wrapText to do the word-by-word break.
+    var allLines = registry.wrapText(String(text), fontSize, maxWidth, advance);
+    if (!allLines.length) {
+      return { lines: [""], fits: true, truncated: false };
+    }
+    if (allLines.length <= maxLines) {
+      return { lines: allLines, fits: true, truncated: false };
+    }
+    // Overflow — keep the first (maxLines-1) lines, then collapse the
+    // remainder onto the last line and ellipsise it to fit.
+    var kept = allLines.slice(0, maxLines - 1);
+    var remaining = allLines.slice(maxLines - 1).join(" ");
+    var avgCharW = fontSize * advance;
+    var maxChars = Math.max(2, Math.floor(maxWidth / avgCharW));
+    if (remaining.length > maxChars - 1) {
+      remaining = remaining.substring(0, maxChars - 1) + "…";
+    }
+    kept.push(remaining);
+    return { lines: kept, fits: false, truncated: true };
+  };
+
+  // ── Warning collection ─────────────────────────────────
+  //
+  // Renderers call `registry.pushWarning(code, info)` whenever they
+  // had to truncate a label, detected overlap, or made any other
+  // best-effort compromise. The chart-builder layer reads them after
+  // each render via `registry.takeWarnings()` and passes them to the
+  // panel UI for surfacing as a banner.
+  //
+  // The warnings are global state per-render — a fresh `R.render(...)`
+  // call resets the buffer, so each chart's warnings stay scoped to
+  // its own render pass.
+  //
+  // @param {string} code  short identifier (e.g. "label-truncated",
+  //                        "labels-overlap")
+  // @param {object} info  arbitrary payload (count, where, suggestion, …)
+  var _activeWarnings = [];
+  registry.pushWarning = function (code, info) {
+    _activeWarnings.push({ code: code, info: info || {} });
+  };
+  registry.takeWarnings = function () {
+    var w = _activeWarnings;
+    _activeWarnings = [];
+    return w;
+  };
+  registry.resetWarnings = function () {
+    _activeWarnings = [];
+  };
+
   // ── Styles ─────────────────────────────────────────────
 
   // Shared base: fonts, text colors, grid — identical across all styles
@@ -208,6 +340,45 @@ var ChartRegistry = (function () {
   };
 
   // ── Registry ──────────────────────────────────────────
+  //
+  // ┌─ MAINTAINER NOTE — adding a new CHART TYPE ────────────────────────┐
+  // │ When you add a new chart type to the plugin, you MUST also:        │
+  // │                                                                    │
+  // │   1. Add the type id to `SUPPORTED_TYPES` in `client/ai-import.js` │
+  // │   2. Decide if it needs `MULTI_VALUE_TYPES` (multi-column)         │
+  // │      or `SPECIAL_SCHEMA_TYPES` (custom data shape) registration    │
+  // │      in the same file                                              │
+  // │   3. Add per-type guidance + a worked data-shape example to        │
+  // │      `client/ai-prompt-template.js`                                │
+  // │   4. Add an alias entry in `ALIAS_TABLE` (in ai-import.js) for     │
+  // │      common name variants the AI might produce                     │
+  // │                                                                    │
+  // │ Without those four updates, Copilot/ChatGPT will refuse to         │
+  // │ generate the new chart type — see commit history for the donut    │
+  // │ rollout for the canonical example. Tests live at                   │
+  // │ `/tmp/test_ai_import_phase_b.js` (regenerable from this repo).    │
+  // └────────────────────────────────────────────────────────────────────┘
+  //
+  // ┌─ MAINTAINER NOTE — adding a new chart SETTING / config field ──────┐
+  // │ Two cases:                                                         │
+  // │                                                                    │
+  // │   A) Pure visual/layout/styling change (margins, palette, font     │
+  // │      sizes, default behaviour) → AUTOMATIC. No AI work needed.     │
+  // │      Chart code is shared between manual UI and AI flow; the new   │
+  // │      look applies to every chart on next reload.                   │
+  // │                                                                    │
+  // │   B) New optional config field the user can tweak (a checkbox,     │
+  // │      slider, dropdown) → wire it through `DataStore.toConfig` +    │
+  // │      `loadFromConfig` (you would for the manual UI anyway), then   │
+  // │      add the field name to the `passthrough` list in               │
+  // │      `ai-import.js`'s `expand()`. One line. Optional: also mention │
+  // │      the field in `ai-prompt-template.js` if you want the AI to    │
+  // │      actively choose values (otherwise defaults apply when the AI  │
+  // │      omits it — totally fine).                                     │
+  // │                                                                    │
+  // │ See data-store.js's loadFromConfig comment for the full rule and   │
+  // │ CLAUDE.md "Plugin-internal sync rules" for the canonical doc.      │
+  // └────────────────────────────────────────────────────────────────────┘
 
   registry.register = function (id, name, renderFn) {
     renderers[id] = { name: name, render: renderFn };
@@ -217,13 +388,22 @@ var ChartRegistry = (function () {
     if (!renderers[type]) return null;
     config = config || {};
 
+    // Fresh warning buffer for this render. Renderers populate via
+    // registry.pushWarning(); chart-builder reads via takeWarnings()
+    // immediately after this call returns.
+    registry.resetWarnings();
+
     // Resolve style colors (user override > style palette)
     var styleName = config.style || "ocha";
     var style = registry.getStyle(styleName);
     // Icon charts → style-specific icon palette (blue ramp); stacked/sankey → distinct main colors
-    var useIconPalette = (type === "stacked-bar" || type === "stacked-col" || type === "icon" || type === "sankey");
+    var useIconPalette = (type === "stacked-bar" || type === "stacked-col" || type === "icon" || type === "sankey" || type === "cluster" || type === "cluster-donut");
     var defaultPalette = useIconPalette ? registry.getIconPalette(styleName) : style.colors;
     config.colors = config.colors || defaultPalette;
+    // Always expose the icon palette too — timeline uses it for
+    // category dot fills so colours stay brand-coherent (a clean
+    // ramp in the active style) regardless of `colors` above.
+    config.iconPalette = registry.getIconPalette(styleName);
 
     // Clone style to avoid mutating the shared original
     var styleCopy = {};
@@ -299,7 +479,20 @@ var ChartRegistry = (function () {
   };
 
   registry.svgBg = function (w, h) {
-    return '  <rect width="' + w + '" height="' + h + '" fill="none"/>';
+    // White fill at 0% opacity — visually transparent (so a chart placed
+    // on a coloured artboard still shows the artboard through), but
+    // registered by Illustrator's SVG importer as a FILLED path. This
+    // matters for the chart's bounding box on placement: with
+    // fill="none" the rect is excluded from visibleBounds, so the
+    // imported group's bbox starts at the leftmost visible content
+    // — which depends on whether the chart has a title, subtitle, or
+    // comments. When that bbox left changes between two renders of
+    // the same chart, updateChart's `placed.left = oldLeft` lands the
+    // chart at a different artboard position than the user expects
+    // (the chart appears to "move" when re-edited). Anchoring the bbox
+    // to the SVG canvas via this transparent rect keeps the chart
+    // visually pinned regardless of what header/footer text is set.
+    return '  <rect width="' + w + '" height="' + h + '" fill="#FFFFFF" fill-opacity="0"/>';
   };
 
   /**
@@ -351,7 +544,7 @@ var ChartRegistry = (function () {
    */
   registry.wrapText = function (text, fontSize, maxWidth, charFactor) {
     if (!text) return [];
-    var avgCharW = fontSize * (charFactor || 0.55);
+    var avgCharW = fontSize * (charFactor || registry.LABEL_ADVANCE);
     var maxChars = Math.floor(maxWidth / avgCharW);
     if (maxChars < 4) maxChars = 4;
 
@@ -371,97 +564,471 @@ var ChartRegistry = (function () {
     return lines;
   };
 
+  /**
+   * Render the chart's header text block (title + subtitle + comments).
+   *
+   * Returns the height of JUST the text block — no trailing cushion,
+   * no plot gap, no chart-side breathing room. The caller (chart
+   * renderer) adds the header-to-plot gap explicitly via
+   * `registry.computePlotTop()`. This separation lets the gap scale
+   * with breakpoint and with the user's vertical-padding slider, and
+   * lets the gap collapse cleanly to zero when the header is empty.
+   *
+   * Output is wrapped in `<g class="chart-header">` so designers see a
+   * dedicated "Header" group when the SVG is imported into Illustrator.
+   *
+   * Returns:
+   *   { svg: string[], height: number }
+   *   - svg: SVG snippets (already wrapped in <g>) ready to concat
+   *   - height: pixels consumed by the text alone, 0 when empty
+   *
+   * Options:
+   *   x, startY, title, subtitle, comments, rs, style, vPad, maxWidth
+   *   widthPercent (optional, 0-100) — narrows the wrap zone without
+   *     moving the left anchor. Default 100 = full chart width.
+   */
   registry.renderHeader = function (opts) {
-    var svg = [];
-    var x = opts.x || 10;
-    var y = opts.startY || 0;
+    // IMPORTANT: use != null, not `|| 10` — callers pass x: 0 to align
+    // text flush to the left edge of the composition, and `||` treats
+    // 0 as falsy and silently falls back to 10.
+    var x = opts.x != null ? opts.x : 10;
+    var startY = opts.startY || 0;
+    var y = startY;
     var rs = opts.rs;
     var st = opts.style;
     var vPad = opts.vPad || 1;
     var lineGap = Math.round(4 * vPad);
-    var maxW = (opts.maxWidth || 380) - x;
+    // widthPercent (0-100) narrows the text-wrap zone without moving the
+    // anchor — title/subtitle/comments stay flush-left at x but wrap at
+    // a smaller width when the user pulls the "Text width" slider down.
+    // Default 100 = full chart width (same as before this option existed).
+    var widthPercent = (opts.widthPercent != null && opts.widthPercent > 0) ? opts.widthPercent : 100;
+    var fullW = (opts.maxWidth || 380) - x;
+    var maxW = Math.max(40, Math.round(fullW * widthPercent / 100));
 
-    // Title (bold — use 0.6 charFactor)
+    var hasContent = !!(opts.title || opts.subtitle || opts.comments);
+    if (!hasContent) {
+      // Empty header → no group emitted, height 0, hasContent false.
+      // computePlotTop() falls back to rs.marginTop in this case.
+      return { svg: [], height: 0, hasContent: false };
+    }
+
+    // Inner content is collected separately so we can wrap it in a
+    // <g class="chart-header"> group around the final emission.
+    var inner = [];
+
+    // Title (bold Roboto regular). Trailing lineGap only when
+    // another header section follows — otherwise it's wasted space
+    // before the plot starts.
     if (opts.title) {
-      var titleLines = registry.wrapText(opts.title, rs.titleSize, maxW, 0.6);
+      var titleLines = registry.wrapText(opts.title, rs.titleSize, maxW, registry.HEADING_BOLD_ADVANCE);
       for (var ti = 0; ti < titleLines.length; ti++) {
         y += Math.round(rs.titleSize * 1.2);
-        svg.push('  <text x="' + x + '" y="' + y +
+        inner.push('  <text x="' + x + '" y="' + y +
           '" font-family="' + st.fontHeading + '" font-size="' + rs.titleSize +
           '" font-weight="bold" fill="' + st.titleColor + '">' +
           registry.escapeXml(titleLines[ti]) + '</text>');
       }
-      y += lineGap;
+      if (opts.subtitle || opts.comments) y += lineGap;
     }
 
-    // Subtitle
+    // Subtitle (regular-weight Roboto). Trailing lineGap only when
+    // a comments section follows.
     if (opts.subtitle) {
       var subSize = Math.max(8, rs.titleSize - 2);
-      var subLines = registry.wrapText(opts.subtitle, subSize, maxW, 0.55);
+      var subLines = registry.wrapText(opts.subtitle, subSize, maxW, registry.HEADING_ADVANCE);
       for (var si = 0; si < subLines.length; si++) {
         y += Math.round(subSize * 1.2);
-        svg.push('  <text x="' + x + '" y="' + y +
+        inner.push('  <text x="' + x + '" y="' + y +
           '" font-family="' + st.fontHeading + '" font-size="' + subSize +
           '" fill="' + st.subtitleColor + '">' +
           registry.escapeXml(subLines[si]) + '</text>');
       }
-      y += lineGap;
+      if (opts.comments) y += lineGap;
     }
 
-    // Comments (up to 3 explicit lines, each wrapped)
+    // Comments (up to 3 explicit lines, each wrapped). No trailing
+    // lineGap — last possible header section, the gap to the plot
+    // is afterHeaderGap below.
     if (opts.comments) {
       var commentSize = rs.commentSize;
       var rawLines = opts.comments.split("\n").slice(0, 3);
       for (var i = 0; i < rawLines.length; i++) {
         var trimmed = rawLines[i].trim();
         if (!trimmed) continue;
-        var wrapped = registry.wrapText(trimmed, commentSize, maxW, 0.55);
+        // Comments: Roboto Condensed (st.fontLabel)
+        var wrapped = registry.wrapText(trimmed, commentSize, maxW, registry.LABEL_ADVANCE);
         for (var w = 0; w < wrapped.length; w++) {
           y += Math.round(commentSize * 1.3);
-          svg.push('  <text x="' + x + '" y="' + y +
+          inner.push('  <text x="' + x + '" y="' + y +
             '" font-family="' + st.fontLabel + '" font-size="' + commentSize +
             '" fill="' + st.commentColor + '">' +
             registry.escapeXml(wrapped[w]) + '</text>');
         }
       }
-      y += lineGap;
     }
 
-    // Add padding after header block — ensures gap before chart area
-    // (extra room so value labels above tall bars don't overlap subtitle)
-    if (opts.title || opts.subtitle || opts.comments) {
-      y += Math.round(32 * vPad);
-    }
+    // Wrap in a semantic group so the SVG output reads
+    //   <g class="chart-header"> ...title/subtitle/comments... </g>
+    // and Illustrator's import preserves it as a selectable group.
+    var svg = ['  <g class="chart-header">'].concat(inner).concat(['  </g>']);
 
-    return { svg: svg, height: y };
+    // height is the ABSOLUTE Y of the text bottom (consistent with the
+    // historical contract — renderers do `plotTop = header.height + …`).
+    // hasContent is the explicit signal for "is there a header to gap
+    // away from?" — needed because an empty header still has a non-zero
+    // height equal to startY.
+    return { svg: svg, height: y, hasContent: true };
   };
 
   /**
-   * Render footer text below the chart.
-   * Returns { svg: [], height: total height consumed }
+   * Render a series legend above the chart (stacked-bar, stacked-col).
+   *
+   * Grid layout — items arrange in equal-width columns so circles line
+   * up vertically across rows (not just horizontally within a row).
+   * When the row overflows maxWidth the remainder wraps to a new row
+   * at the same left-anchored column grid.
+   *
+   * Spacing hints:
+   *   hasSubtitle=true  → extra top gap so the legend doesn't crowd the
+   *                      subtitle
+   *   hasSubtitle=false → tighter top gap so the legend sits closer to
+   *                      the title
+   * Adds a fixed bottom pad so there's breathing room before the chart.
+   *
+   * opts: { x, startY, names[], colors[], rs, style, maxWidth, hasSubtitle }
+   * Returns: { svg: [], height }
+   */
+  registry.renderStackedLegend = function (opts) {
+    var svg = [];
+    var names = opts.names || [];
+    var colors = opts.colors || [];
+    if (!names.length) return { svg: svg, height: 0 };
+
+    var rs = opts.rs;
+    var st = opts.style;
+    var x0 = opts.x || 0;
+    var startY = opts.startY || 0;
+    var maxW = (opts.maxWidth || 380) - x0;
+
+    var textSize = Math.max(8, rs.labelSize - 1);
+    var radius = Math.max(3, Math.round(textSize * 0.38));
+    var gapAfterCircle = 6;      // space between circle and label
+    var colGap = 18;             // horizontal gap between columns
+    var rowGap = Math.round(textSize * 0.8);
+    var rowH = Math.round(textSize * 1.3);
+
+    // Spacing — the gap ABOVE the legend is already provided by
+    // computePlotTop() (the caller sets startY = plotTop, which has
+    // rs.afterHeaderGap baked in after the header). Adding another
+    // header gap here would double the visible gap between the header
+    // and the legend.
+    // The bottom pad mirrors the same afterHeaderGap so the gap
+    // ABOVE the legend and the gap BELOW the legend stay balanced
+    // through the vertical-padding slider — when the user pulls vPad
+    // low both sides shrink together; when they push it high both
+    // sides grow together. Falls back to headerGap for older configs
+    // that don't define afterHeaderGap.
+    var topPad = 0;
+    var bottomPad = (rs.afterHeaderGap != null) ? rs.afterHeaderGap : rs.headerGap;
+
+    var lineFont = st.fontLabel || "Arial, sans-serif";
+    var textColor = st.labelColor;
+
+    // Per-item width (circle + gap + text)
+    var widest = 0;
+    var items = [];
+    for (var i = 0; i < names.length; i++) {
+      var name = String(names[i] || "Series " + (i + 1));
+      // Legend item text uses fonts.label / fonts.value (Roboto Condensed)
+      var estTextW = name.length * textSize * registry.LABEL_ADVANCE;
+      var itemW = radius * 2 + gapAfterCircle + estTextW;
+      if (itemW > widest) widest = itemW;
+      items.push({ name: name, color: colors[i % colors.length], w: itemW });
+    }
+
+    // Grid dimensions — every column is the same width so circles in
+    // row 2 align underneath circles in row 1.
+    var colW = widest;
+    var cols = Math.max(1, Math.floor((maxW + colGap) / (colW + colGap)));
+    if (cols > items.length) cols = items.length;
+
+    // Emit SVG
+    var y = startY + topPad + rowH;
+    for (var j = 0; j < items.length; j++) {
+      var colIdx = j % cols;
+      if (j > 0 && colIdx === 0) {
+        y += rowH + rowGap;
+      }
+      var cellX = x0 + colIdx * (colW + colGap);
+      var textBaselineY = y;
+      var circleY = textBaselineY - textSize * 0.4;
+      var it = items[j];
+      svg.push('  <circle cx="' + (cellX + radius).toFixed(1) +
+        '" cy="' + circleY.toFixed(1) +
+        '" r="' + radius + '" fill="' + it.color + '"/>');
+      var textX = cellX + radius * 2 + gapAfterCircle;
+      svg.push('  <text x="' + textX.toFixed(1) + '" y="' + textBaselineY.toFixed(1) +
+        '" font-family="' + lineFont + '" font-size="' + textSize +
+        '" fill="' + textColor + '">' + registry.escapeXml(it.name) + '</text>');
+    }
+
+    var totalH = (y - startY) + bottomPad;
+    return { svg: svg, height: totalH };
+  };
+
+  /**
+   * Render the chart's footer text block (source / attribution).
+   *
+   * Returns the height of JUST the text block — no leading "gap from
+   * the plot" and no trailing breathing room. The caller is expected
+   * to compute the footer's startY via `registry.computeFooterStart()`,
+   * which adds `rs.footerGap` between the plot bottom and the footer
+   * when (and only when) the footer has content. This keeps the gap
+   * scaling responsive and lets it collapse cleanly to zero when the
+   * footer is empty.
+   *
+   * Output is wrapped in `<g class="chart-footer">` so designers see
+   * a dedicated "Footer" group when the SVG is imported.
+   *
+   * Returns:
+   *   { svg: string[], height: number, hasContent: boolean }
+   *
+   * Options:
+   *   x, startY, footer, rs, style, maxWidth
+   *   widthPercent (optional, 0-100) — narrows the wrap zone without
+   *     moving the left anchor. Default 100 = full chart width.
    */
   registry.renderFooter = function (opts) {
-    var svg = [];
-    if (!opts.footer) return { svg: svg, height: 0 };
+    if (!opts.footer) {
+      return { svg: [], height: 0, hasContent: false };
+    }
 
     var footerSize = opts.rs.footerSize;
     var st = opts.style;
-    var vPad = opts.vPad || 1;
-    var x = opts.x || 10;
-    var maxW = (opts.maxWidth || 380) - x;
-    var y = opts.startY + Math.round(14 * vPad);
+    // IMPORTANT: use != null, not `|| 10`. Callers pass x: 0 to sit
+    // flush-left with the title; `||` would silently fall back to 10.
+    var x = opts.x != null ? opts.x : 10;
+    // Same widthPercent contract as renderHeader — narrow the wrap zone
+    // without moving the left anchor.
+    var widthPercent = (opts.widthPercent != null && opts.widthPercent > 0) ? opts.widthPercent : 100;
+    var fullW = (opts.maxWidth || 380) - x;
+    var maxW = Math.max(40, Math.round(fullW * widthPercent / 100));
+    var startY = opts.startY || 0;
+    var y = startY;
 
-    var footerLines = registry.wrapText(opts.footer, footerSize, maxW, 0.55);
+    var inner = [];
+    // Footer: Roboto Condensed (st.fontLabel)
+    var footerLines = registry.wrapText(opts.footer, footerSize, maxW, registry.LABEL_ADVANCE);
     for (var i = 0; i < footerLines.length; i++) {
       y += Math.round(footerSize * 1.2);
-      svg.push('  <text x="' + x + '" y="' + y +
+      inner.push('  <text x="' + x + '" y="' + y +
         '" font-family="' + st.fontLabel + '" font-size="' + footerSize +
         '" fill="' + st.footerColor + '">' +
         registry.escapeXml(footerLines[i]) + '</text>');
     }
 
-    y += Math.round(10 * vPad);
-    return { svg: svg, height: y - opts.startY };
+    var svg = ['  <g class="chart-footer">'].concat(inner).concat(['  </g>']);
+
+    // height is the consumed pixels (NOT absolute Y). Renderers add
+    // this to the footer's startY to get the bottom of the footer
+    // block, used to compute total SVG height.
+    return { svg: svg, height: y - startY, hasContent: true };
+  };
+
+  // ── Layout Helpers ──────────────────────────────────
+  //
+  // The chart layout is conceptually three vertical zones:
+  //
+  //   ┌──────────────────────────┐
+  //   │  HEADER (text)           │   ← renderHeader
+  //   ├──── headerGap ───────────┤   ← computePlotTop
+  //   │  PLOT (the chart)        │
+  //   ├──── footerGap ───────────┤   ← computeFooterStart
+  //   │  FOOTER (source line)    │   ← renderFooter
+  //   └──────────────────────────┘
+  //
+  // Each zone is independent:
+  //   - Empty header → no group emitted, plotTop falls back to rs.marginTop
+  //   - Empty footer → no group emitted, no footerGap consumed
+  //   - Both gaps scale with breakpoint (xs/sm/md/lg) and with the
+  //     user's vertical-padding slider via applyVerticalPadding.
+  //
+  // These helpers replace the old per-renderer pattern
+  //   `var plotTop = header.height || rs.marginTop;`
+  // (which baked a 32 px cushion into the header function and wasn't
+  // breakpoint-aware) — and the +4 fudge factor that drifted across
+  // about half of the renderers.
+
+  /**
+   * Compute where the plot area should start (in absolute SVG y) based
+   * on whether the header has content.
+   * @param {object} rs - responsive settings (must include marginTop, headerGap)
+   * @param {object} header - the result of registry.renderHeader()
+   * @returns {number} y position in SVG coordinates
+   */
+  registry.computePlotTop = function (rs, header) {
+    if (header && header.hasContent) {
+      // header.height is the absolute Y of the text bottom; add the
+      // (smaller) afterHeaderGap to land at the plot top. The full
+      // headerGap is kept for legend bottom-padding so a multi-row
+      // legend still has air between itself and the plot.
+      var gap = (rs.afterHeaderGap != null) ? rs.afterHeaderGap : rs.headerGap;
+      return header.height + gap;
+    }
+    // No header text → use the chart's natural top margin so we don't
+    // sit flush against the SVG edge.
+    return rs.marginTop;
+  };
+
+  /**
+   * Compute where the footer text should start (in absolute SVG y) based
+   * on the plot's bottom edge and whether the footer has content.
+   *
+   * Accepts either a boolean (typical — caller knows from `config.footer`
+   * before calling renderFooter) or the rendered-footer object with a
+   * `.hasContent` flag (for callers that prefer to compute after).
+   *
+   * @param {object} rs - responsive settings (must include footerGap)
+   * @param {number} plotBottom - absolute Y of the plot's bottom edge
+   * @param {boolean|object} hasFooterOrObj - either `!!config.footer`
+   *                          or the result of registry.renderFooter()
+   * @returns {number} y position in SVG coordinates where the footer
+   *                   group should start. When the footer has no
+   *                   content, equal to plotBottom (no gap consumed).
+   */
+  registry.computeFooterStart = function (rs, plotBottom, hasFooterOrObj) {
+    var hasContent = (hasFooterOrObj === true) ||
+      (hasFooterOrObj && hasFooterOrObj.hasContent === true);
+    return hasContent ? plotBottom + rs.footerGap : plotBottom;
+  };
+
+  /**
+   * Measure how much vertical space the x-axis label row needs below
+   * the chart's baseline, given the longest actual label in the data.
+   *
+   * Returns the FULL margin-bottom budget — i.e. the pixel distance
+   * from the chart baseline down to the bottom of the lowest visible
+   * label glyph + a small breathing gap. Caller sets
+   *
+   *     var marginBottom = R.measureXAxisLabelBudget(data, rs, rotated);
+   *
+   * and trusts the helper to size the row to the actual content.
+   *
+   * Replaces the old magic-number margins like
+   *   `rotated ? Math.max(rs.marginBottom * 3, 65) : Math.max(rs.marginBottom * 2, 48)`
+   * which under-reserved space whenever a label was even moderately
+   * long. A 14-char label at the default 12 pt font tilted -45° extends
+   * ~95 px below the chart baseline — the old magic 65 wasn't enough,
+   * so the footer landed on top of the labels.
+   *
+   * Layout assumptions (consistent across line / vbar / stacked-col):
+   *   chart baseline
+   *   ↓  ~16 px breathing gap to label baseline
+   *   label baseline (rotation pivot for tilted)
+   *   ↓  STRAIGHT:  cap-to-descender ≈ labelSize × 1.2
+   *      ROTATED:   sin(45°) × (labelWidth + descender) plus
+   *                 a small font allowance
+   *   ↓  small bottom gap
+   *
+   * @param {Array}   data    - chart data; each item must have `.label`
+   * @param {object}  rs      - responsive settings (labelSize, maxLabelChars)
+   * @param {boolean} rotated - true when labels render at -45°
+   * @returns {number} pixel budget below the chart baseline
+   */
+  /**
+   * Measure how far below the label's anchor point its visible content
+   * extends, given the longest actual label in the data.
+   *
+   * The anchor point is:
+   *   - For straight labels: the text baseline (set by the SVG y attribute)
+   *   - For rotated -45° labels with text-anchor="end": the rotation pivot
+   *
+   * Used as a building block by `measureXAxisLabelBudget` (which adds a
+   * baseline gap and bottom gap on top) and directly by renderers whose
+   * label-anchor offset isn't a flat constant — e.g. bubble, where the
+   * label sits below each bubble's bottom edge rather than below a shared
+   * baseline.
+   *
+   * @param {Array}   data    - chart data; each item must have `.label`
+   * @param {object}  rs      - responsive settings (labelSize, maxLabelChars)
+   * @param {boolean} rotated - true when labels render at -45°
+   * @returns {number} pixel extent below the label anchor
+   */
+  registry.measureLabelExtentBelowAnchor = function (data, rs, rotated) {
+    if (!data || !data.length) {
+      // Pathological case — reserve room for a single-line glyph anyway.
+      return Math.ceil(rs.labelSize * 0.2);
+    }
+    // Longest visible label after truncation — matches what renders on
+    // screen, so budgeting reflects on-screen content not raw input.
+    var maxLen = 0;
+    for (var i = 0; i < data.length; i++) {
+      var s = (data[i] && data[i].label != null) ? String(data[i].label) : "";
+      if (rs.maxLabelChars && s.length > rs.maxLabelChars) {
+        s = s.substring(0, rs.maxLabelChars);
+      }
+      if (s.length > maxLen) maxLen = s.length;
+    }
+    // Approximate label pixel width (chars × fontSize × ~0.55 advance).
+    // X-axis labels render in fonts.label (Roboto Condensed)
+    var labelW = maxLen * rs.labelSize * registry.LABEL_ADVANCE;
+    if (rotated) {
+      // After rotate(-45) around (lx, labelY) with text-anchor="end",
+      // the descender's lower-left corner ends up at
+      //   labelY + (labelW + 0.2 × labelSize) × 0.707
+      // below the pivot.
+      return Math.ceil(rs.labelSize * 0.14 + labelW * 0.707);
+    }
+    // Straight labels: descender extends ~0.2 × labelSize below baseline.
+    return Math.ceil(rs.labelSize * 0.2);
+  };
+
+  /**
+   * Measure how much vertical space the x-axis label row needs below
+   * the chart's baseline, given the longest actual label in the data.
+   *
+   * Returns the FULL margin-bottom budget — i.e. the pixel distance
+   * from the chart baseline down to the bottom of the lowest visible
+   * label glyph + a small breathing gap. Caller sets
+   *
+   *     var marginBottom = R.measureXAxisLabelBudget(data, rs, rotated);
+   *
+   * and trusts the helper to size the row to the actual content.
+   *
+   * Replaces the old magic-number margins like
+   *   `rotated ? Math.max(rs.marginBottom * 3, 65) : Math.max(rs.marginBottom * 2, 48)`
+   * which under-reserved space whenever a label was even moderately
+   * long. A 14-char label at the default 12 pt font tilted -45° extends
+   * ~95 px below the chart baseline — the old magic 65 wasn't enough,
+   * so the footer landed on top of the labels.
+   *
+   * Layout assumptions (consistent across line / vbar / stacked-col):
+   *   chart baseline
+   *   ↓  ~16 px breathing gap to label baseline
+   *   label baseline (rotation pivot for tilted)
+   *   ↓  cap-to-baseline (~labelSize) + extentBelowAnchor (rotated/straight)
+   *   ↓  small bottom gap
+   *
+   * @param {Array}   data    - chart data; each item must have `.label`
+   * @param {object}  rs      - responsive settings (labelSize, maxLabelChars)
+   * @param {boolean} rotated - true when labels render at -45°
+   * @returns {number} pixel budget below the chart baseline
+   */
+  registry.measureXAxisLabelBudget = function (data, rs, rotated, lineCount) {
+    var baselineGap = 16;       // chart baseline → label baseline
+    var bottomGap = 6;          // breathing room below the lowest glyph
+    if (rotated) {
+      // Rotated labels are single-line by design.
+      var capHeight = rs.labelSize;
+      var below = registry.measureLabelExtentBelowAnchor(data, rs, rotated);
+      return Math.ceil(baselineGap + capHeight + below + bottomGap);
+    }
+    // Multi-line straight labels: stack lineCount lines at lineH = 1.2×fontSize.
+    // Caller passes the actual maxLines used after pre-wrap; defaults to 1.
+    lineCount = lineCount || 1;
+    var lineH = Math.round(rs.labelSize * 1.2);
+    return Math.ceil(baselineGap + lineCount * lineH + bottomGap);
   };
 
   // ── Scale Functions ─────────────────────────────────
@@ -475,14 +1042,36 @@ var ChartRegistry = (function () {
     };
   };
 
-  registry.bandScale = function (count, rangeMin, rangeMax, padding) {
+  /**
+   * Distribute `count` bands across [rangeMin, rangeMax].
+   *
+   * The bands are flush-left: the first band starts exactly at rangeMin,
+   * with the inter-band gap (`padding × step`) appearing AFTER each
+   * band. The last band is followed by one trailing gap, so the total
+   * length is preserved.
+   *
+   * Used by vbar / stacked-col to put the first column's left edge at
+   * x=0 inside the plot group, matching the title's flush-left position.
+   * Pass `centered=true` to opt into the legacy behaviour where the
+   * leading gap was split symmetrically before the first band — kept
+   * as an escape hatch but no current renderer uses it.
+   *
+   * @param {number} count
+   * @param {number} rangeMin
+   * @param {number} rangeMax
+   * @param {number} [padding=0.2] gap between bands as a fraction of step
+   * @param {boolean} [centered=false] true to restore legacy centred bands
+   */
+  registry.bandScale = function (count, rangeMin, rangeMax, padding, centered) {
     padding = padding != null ? padding : 0.2;
     var totalRange = rangeMax - rangeMin;
     if (count <= 0) return { bandwidth: totalRange, step: totalRange, position: function () { return rangeMin; } };
 
     var step = totalRange / count;
     var bandwidth = step * (1 - padding);
-    var offset = (step - bandwidth) / 2;
+    // Default flush-left: no leading offset, gap sits AFTER each band.
+    // Legacy centered: split (step - bandwidth) symmetrically before first band.
+    var offset = centered ? (step - bandwidth) / 2 : 0;
 
     return {
       bandwidth: bandwidth,
@@ -619,6 +1208,18 @@ var ChartRegistry = (function () {
     xs: {
       titleSize: 10, labelSize: 8, valueSize: 7, legendSize: 8, commentSize: 7, footerSize: 7,
       marginTop: 24, marginBottom: 12, marginLeft: 30, marginRight: 10,
+      // headerGap: legend bottom-padding (and any other "balanced" gap a
+      //            renderer wants between two visually heavy zones).
+      // afterHeaderGap: gap directly between the header text block and
+      //            whatever's next (legend OR plot top). Smaller than
+      //            headerGap on purpose — the title doesn't need as
+      //            much air below it as a multi-row legend does.
+      // footerGap: plot-bottom → footer text gap.
+      // All three scale with breakpoint AND with the user's
+      // vertical-padding slider (see applyVerticalPadding). When the
+      // corresponding text zone is empty, computePlotTop /
+      // computeFooterStart skip the gap entirely.
+      headerGap: 12, afterHeaderGap: 7, footerGap: 10,
       barThickness: 14, barGap: 5,
       legendItemH: 14, legendSwatchW: 8, legendGap: 4,
       maxTicks: 3, labelRotateThreshold: 4, maxLabelChars: 10,
@@ -627,6 +1228,7 @@ var ChartRegistry = (function () {
     sm: {
       titleSize: 11, labelSize: 9, valueSize: 8, legendSize: 9, commentSize: 8, footerSize: 8,
       marginTop: 30, marginBottom: 15, marginLeft: 40, marginRight: 15,
+      headerGap: 18, afterHeaderGap: 11, footerGap: 14,
       barThickness: 18, barGap: 7,
       legendItemH: 16, legendSwatchW: 10, legendGap: 5,
       maxTicks: 5, labelRotateThreshold: 5, maxLabelChars: 14,
@@ -635,6 +1237,7 @@ var ChartRegistry = (function () {
     md: {
       titleSize: 14, labelSize: 11, valueSize: 10, legendSize: 10, commentSize: 10, footerSize: 10,
       marginTop: 40, marginBottom: 20, marginLeft: 50, marginRight: 20,
+      headerGap: 24, afterHeaderGap: 14, footerGap: 18,
       barThickness: 24, barGap: 10,
       legendItemH: 20, legendSwatchW: 12, legendGap: 6,
       maxTicks: 8, labelRotateThreshold: 7, maxLabelChars: 20,
@@ -643,6 +1246,7 @@ var ChartRegistry = (function () {
     lg: {
       titleSize: 16, labelSize: 12, valueSize: 11, legendSize: 11, commentSize: 11, footerSize: 11,
       marginTop: 45, marginBottom: 25, marginLeft: 55, marginRight: 25,
+      headerGap: 32, afterHeaderGap: 19, footerGap: 22,
       barThickness: 28, barGap: 12,
       legendItemH: 22, legendSwatchW: 14, legendGap: 7,
       maxTicks: 12, labelRotateThreshold: 10, maxLabelChars: 30,
@@ -671,6 +1275,18 @@ var ChartRegistry = (function () {
       }
     }
 
+    // Font sizes stay constant across widths — the width slider only
+    // adjusts spacings (margins, plot height, bar thickness). This keeps
+    // labels and titles visually consistent regardless of chart size.
+    // textScale / labelScale sliders remain as independent overrides.
+    var FIXED_FONTS = BREAKPOINT_PRESETS.md;
+    rs.titleSize   = FIXED_FONTS.titleSize;
+    rs.labelSize   = FIXED_FONTS.labelSize;
+    rs.valueSize   = FIXED_FONTS.valueSize;
+    rs.legendSize  = FIXED_FONTS.legendSize;
+    rs.commentSize = FIXED_FONTS.commentSize;
+    rs.footerSize  = FIXED_FONTS.footerSize;
+
     // Always fixed
     rs.strokeWidth = 2;
     rs.gridStrokeWidth = 1;
@@ -688,13 +1304,23 @@ var ChartRegistry = (function () {
    */
   registry.applyVerticalPadding = function (rs, verticalPadding) {
     if (!verticalPadding) return rs;
+    // Clamp the effective multiplier so extreme negatives don't crush
+    // the chart. -100 maps to 0.5x which is plenty to say "tight"; any
+    // lower would start clipping axis labels, values, and data points.
     var vPad = 1 + (verticalPadding / 200);
+    if (vPad < 0.5) vPad = 0.5;
     var padded = {};
     for (var key in rs) {
       if (rs.hasOwnProperty(key)) padded[key] = rs[key];
     }
+    // Spacings scale; font sizes stay unchanged so text remains
+    // consistently readable at any height. Use textScale / labelScale
+    // if independent font adjustment is needed.
     padded.marginTop = Math.round(rs.marginTop * vPad);
     padded.marginBottom = Math.round(rs.marginBottom * vPad);
+    padded.headerGap = Math.round(rs.headerGap * vPad);
+    padded.afterHeaderGap = Math.round(rs.afterHeaderGap * vPad);
+    padded.footerGap = Math.round(rs.footerGap * vPad);
     padded.barGap = Math.round(rs.barGap * vPad);
     padded.defaultPlotHeight = Math.round(rs.defaultPlotHeight * vPad);
     padded.legendItemH = Math.round(rs.legendItemH * vPad);
@@ -779,10 +1405,67 @@ var ChartRegistry = (function () {
     switch (contentMode) {
       case "pct": return pct + "%";
       case "value": return registry.formatNumber(absVal, numFmt);
+      case "value-pct": return registry.formatNumber(absVal, numFmt) + " (" + pct + "%)";
       case "label-value": return registry.truncate(label, rs.maxLabelChars) + " (" + registry.formatNumber(absVal, numFmt) + ")";
+      case "label-value-pct": return registry.truncate(label, rs.maxLabelChars) + " (" + registry.formatNumber(absVal, numFmt) + ", " + pct + "%)";
       case "label-pct":
       default: return registry.truncate(label, rs.maxLabelChars) + " (" + pct + "%)";
     }
+  };
+
+  /**
+   * Build wrapped lines for a pie/donut OUTSIDE label.
+   * Wraps the label across up to maxLines lines using wrapText, then appends
+   * the suffix (like " (45%)" or " (12.3K)") to the last line so it never
+   * splits across wraps. If even wrapped the label exceeds maxLines, the
+   * overflow into the last line is truncated with an ellipsis.
+   *
+   * @param {string} label       raw label text
+   * @param {number} pct         percentage value (e.g. 45)
+   * @param {number|string} absVal absolute value
+   * @param {string} contentMode "pct" | "value" | "value-pct" |
+   *                             "label-pct" | "label-value" |
+   *                             "label-value-pct"
+   * @param {number} fontSize
+   * @param {number} maxWidth    available pixel width for text
+   * @param {number} maxLines    2 or 3 typically
+   * @param {object} numFmt      passed to formatNumber
+   * @returns {string[]}         array of line strings (1..maxLines long)
+   */
+  registry.buildPieLabelLines = function (label, pct, absVal, contentMode, fontSize, maxWidth, maxLines, numFmt) {
+    maxLines = maxLines || 2;
+
+    // Compact modes — single line, no wrapping needed.
+    if (contentMode === "pct")       return [pct + "%"];
+    if (contentMode === "value")     return [registry.formatNumber(absVal, numFmt)];
+    if (contentMode === "value-pct") return [registry.formatNumber(absVal, numFmt) + " (" + pct + "%)"];
+
+    // label-value / label-value-pct / label-pct (default): wrap label,
+    // suffix on last line.
+    var suffix;
+    if (contentMode === "label-value") {
+      suffix = " (" + registry.formatNumber(absVal, numFmt) + ")";
+    } else if (contentMode === "label-value-pct") {
+      suffix = " (" + registry.formatNumber(absVal, numFmt) + ", " + pct + "%)";
+    } else {
+      suffix = " (" + pct + "%)";
+    }
+
+    // Pie/donut outside labels render in fonts.label (Roboto Condensed)
+    var lines = registry.wrapText(label || "", fontSize, Math.max(20, maxWidth), registry.LABEL_ADVANCE);
+    if (!lines.length) lines = [""];
+
+    if (lines.length > maxLines) {
+      var lastIdx = maxLines - 1;
+      var remaining = lines.slice(lastIdx).join(" ");
+      var maxChars = Math.floor(maxWidth / (fontSize * registry.LABEL_ADVANCE));
+      var cap = Math.max(1, maxChars - suffix.length - 1);
+      if (remaining.length > cap) remaining = remaining.substring(0, cap) + "\u2026";
+      lines = lines.slice(0, lastIdx).concat([remaining]);
+    }
+
+    lines[lines.length - 1] = lines[lines.length - 1] + suffix;
+    return lines;
   };
 
   // ── Inline Icon Helpers ────────────────────────────────

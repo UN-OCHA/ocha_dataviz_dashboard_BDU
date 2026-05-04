@@ -50,9 +50,10 @@ Treat any edit that touches one of these as a cross-tool flag:
     GitHub catalog everything else uses)
   - If any of these wire formats change, both tools need to agree.
 - **Chart type names**
-  - `hbar`, `vbar`, `stacked-bar`, `stacked-col`, `donut`, `pie`, `bubble`,
-    `line`, `sankey`, `icon`, `table`, `keyfigures`, `timeline`. Renaming
-    or adding a type means both tools need to know about it.
+  - `hbar`, `vbar`, `stacked-bar`, `stacked-col`, `cluster`, `cluster-donut`,
+    `donut`, `pie`, `bubble`, `line`, `sankey`, `icon`, `table`,
+    `keyfigures`, `timeline`. Renaming or adding a type means both tools
+    need to know about it.
 - **Chart engine semantics that aren't web-specific**
   - Donut/pie percentage calculation
   - Color palette assignment order

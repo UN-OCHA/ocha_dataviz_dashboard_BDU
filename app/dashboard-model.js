@@ -17,6 +17,7 @@ var DashboardModel = (function () {
   // Keep in sync with copilot-prompt.md and the chart-*.js registered ids.
   var CHART_TYPES = [
     "hbar", "vbar", "stacked-bar", "stacked-col",
+    "cluster", "cluster-donut",
     "line", "donut", "pie", "bubble", "sankey",
     "icon", "table", "keyfigures", "timeline", "text"
   ];
@@ -269,7 +270,10 @@ var DashboardModel = (function () {
   }
 
   function sampleDataForType(type) {
-    if (type === "stacked-bar" || type === "stacked-col") {
+    if (type === "stacked-bar" || type === "stacked-col" ||
+        type === "cluster" || type === "cluster-donut") {
+      // Same wire shape as stacked: [{label, series, value}] gets reshaped
+      // by the renderer into [{label, values: [...]}].
       return [
         { label: "A", series: "Series 1", value: 10 },
         { label: "A", series: "Series 2", value: 6 },
@@ -313,6 +317,8 @@ var DashboardModel = (function () {
       "vbar": "New column chart",
       "stacked-bar": "New stacked bar chart",
       "stacked-col": "New stacked column chart",
+      "cluster": "New cluster chart",
+      "cluster-donut": "New cluster donut",
       "donut": "New donut chart",
       "pie": "New pie chart",
       "line": "New line chart",

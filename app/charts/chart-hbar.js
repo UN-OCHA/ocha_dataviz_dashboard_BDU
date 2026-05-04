@@ -1,8 +1,10 @@
 /**
- * Horizontal Bar Chart Renderer — v9
+ * Horizontal Bar Chart Renderer
  *
- * v9 changes: Roboto fonts, shared header/footer, vertical padding, style colors.
- * v10: inline icon/flag column support.
+ * Each row → one bar whose width encodes its value. Labels sit on
+ * the left column with optional inline icon/flag, and the value is
+ * drawn at the bar end. The label column auto-grows to fit the
+ * widest wrapped label so the longest label sits flush at x ≈ 0.
  */
 
 /* global ChartRegistry */
@@ -20,8 +22,17 @@
 
     // Bar thickness: user override → breakpoint default
     var barThickness = config.barThickness || rs.barThickness;
-    var barGap = rs.barGap;
+    // User-configurable bar spacing (vertical gap between rows).
+    // Auto = the responsive default. Manual = whatever the user picked.
+    var barGap = (config.barSpacing && config.barSpacing > 0) ? config.barSpacing : rs.barGap;
 
+    // Flush-left composition (matches stacked-bar pattern):
+    //   ┌── label column ──┬── icon ──┬── bar zone ──┐
+    //   x=0                                          plotWidth
+    // Labels are right-aligned within `labelColW`, so the longest
+    // label's left edge sits at x ≈ 0 (perceptually flush with the
+    // title). Shorter labels indent inward.
+    var marginLeft = 0;
     var marginRight = rs.marginRight;
 
     // Icon column: check if any data items have resolved icons
@@ -35,19 +46,54 @@
     var iconGap = 6;
     var iconMaxW = hasIcons ? R.maxIconWidth(data, iconH, iconNorm) : 0;
 
-    // Left margin: estimate from longest label + icon + gap space
-    var maxLabelLen = 0;
+    // Pre-wrap each category label into up to 3 lines that fit within
+    // the capped label column width. Multi-line labels grow the row
+    // gap so adjacent rows' labels don't overlap. A label that even
+    // at 3 lines doesn't fit gets the last line ellipsised and is
+    // rendered in faded grey + reported via pushWarning so the panel
+    // surfaces a banner.
+    var LABEL_LINE_H = Math.round(rs.labelSize * 1.2);
+    var labelTargetW = Math.min(svgW * 0.35, 200);
+    var wrappedLabels = [];
+    var maxLineW = 0;
+    var maxLines = 1;
+    var truncCount = 0;
     for (var i = 0; i < data.length; i++) {
-      if (data[i].label.length > maxLabelLen) maxLabelLen = data[i].label.length;
+      var wrap = R.wrapToFit(String(data[i].label || ""),
+        rs.labelSize, labelTargetW, 3, R.LABEL_ADVANCE);
+      wrappedLabels.push(wrap);
+      if (!wrap.fits) truncCount++;
+      if (wrap.lines.length > maxLines) maxLines = wrap.lines.length;
+      for (var l = 0; l < wrap.lines.length; l++) {
+        var lw = wrap.lines[l].length * rs.labelSize * R.LABEL_ADVANCE;
+        if (lw > maxLineW) maxLineW = lw;
+      }
     }
-    var marginLeft = Math.min(svgW * 0.35, Math.max(rs.marginLeft, maxLabelLen * rs.labelSize * 0.55));
-    if (iconMaxW > 0) {
-      marginLeft += iconMaxW + iconGap * 2; // space for icon between label and bar
+    if (truncCount > 0) {
+      R.pushWarning("label-truncated", {
+        count: truncCount,
+        suggestion: "Try a wider chart or shorter category labels"
+      });
     }
+
+    // Column width = actual longest wrapped line + 2-px glyph-bearing
+    // safety. Capped at 35% of canvas (the wrap target) so bars still
+    // get room.
+    var labelColW = Math.min(svgW * 0.35, maxLineW + 2);
+    var labelToBarGap = 12;
+    var iconSlotW = iconMaxW > 0 ? (iconMaxW + iconGap) : 0;
+    var barStartX = labelColW + labelToBarGap + iconSlotW;
+
+    // Row height: bar thickness OR multi-line label block, whichever
+    // taller. We grow the inter-row gap (effBarGap) by twice the label
+    // overhang so adjacent rows don't have their labels overlap.
+    var labelBlockH = maxLines * LABEL_LINE_H;
+    var labelOverhang = Math.max(0, (labelBlockH - barThickness) / 2);
+    var effBarGap = barGap + labelOverhang * 2;
 
     // Header block
     var header = R.renderHeader({
-      x: marginLeft,
+      x: 0,
       startY: 6,
       title: title,
       subtitle: config.subtitle,
@@ -55,25 +101,29 @@
       rs: rs,
       style: st,
       vPad: vPad,
-      maxWidth: svgW
+      maxWidth: svgW, widthPercent: config.headerTextWidth
     });
 
-    var plotTop = header.height || rs.marginTop;
+    var plotTop = R.computePlotTop(rs, header);
 
-    // Data area
+    // Data area — bars occupy the zone right of the label column.
+    // Reserve a little space on the right for outside value labels.
     var plotWidth = svgW - marginLeft - marginRight;
-    var plotHeight = data.length * (barThickness + barGap) - barGap;
+    var valueLabelBudget = Math.max(32, rs.valueSize * 4);
+    var barsZoneW = Math.max(20, plotWidth - barStartX - valueLabelBudget);
+    var plotHeight = data.length * (barThickness + effBarGap) - effBarGap;
 
-    // Footer
-    var footerStartY = plotTop + plotHeight;
+    // Footer — computeFooterStart adds rs.footerGap when there's footer
+    // text, otherwise no gap is consumed.
+    var footerStartY = R.computeFooterStart(rs, plotTop + plotHeight, !!config.footer);
     var footer = R.renderFooter({
-      x: marginLeft,
+      x: 0,
       startY: footerStartY,
       footer: config.footer,
       rs: rs,
       style: st,
       vPad: vPad,
-      maxWidth: svgW
+      maxWidth: svgW, widthPercent: config.footerTextWidth
     });
 
     var svgH = config.height || (footerStartY + footer.height + rs.marginBottom);
@@ -81,8 +131,8 @@
     // If user set a fixed height, recalculate bar thickness
     if (config.height) {
       var availH = svgH - plotTop - footer.height - rs.marginBottom;
-      barThickness = Math.max(6, Math.floor((availH + barGap) / data.length) - barGap);
-      plotHeight = data.length * (barThickness + barGap) - barGap;
+      barThickness = Math.max(6, Math.floor((availH + effBarGap) / data.length) - effBarGap);
+      plotHeight = data.length * (barThickness + effBarGap) - effBarGap;
       iconH = isFlags
         ? Math.round(rs.labelSize * 1.1)
         : Math.round(rs.labelSize * 1.3);
@@ -95,25 +145,9 @@
       if (data[m].value > maxVal) maxVal = data[m].value;
     }
     if (maxVal === 0) maxVal = 1;
-
-    // ── FORK PATCH (online tool): reserve room at the right of the plot
-    // for the longest value label so the bar+label never escape the SVG.
-    // Reserve = max(textwidth-based reserve, 18% of plot width) — the
-    // percent floor catches edge cases where the text estimate is too low.
-    var lblMode0 = config.barLabelMode || "outside";
-    var labelReserve = 0;
-    if (lblMode0 === "outside") {
-      var maxValChars = 0;
-      for (var lv = 0; lv < data.length; lv++) {
-        var s = R.formatNumber(data[lv].value, config.numFmt);
-        if (String(s).length > maxValChars) maxValChars = String(s).length;
-      }
-      var textBased = 6 + Math.ceil(maxValChars * rs.valueSize * 0.66) + 10;
-      var percentBased = Math.ceil(plotWidth * 0.18);
-      labelReserve = Math.max(textBased, percentBased);
-    }
-    var effectivePlotWidth = Math.max(20, plotWidth - labelReserve);
-    var xScale = R.linearScale(0, maxVal, 0, effectivePlotWidth);
+    // User-fixed scale anchor: lets two charts be directly comparable.
+    if (config.axisMax != null && config.axisMax > 0) maxVal = config.axisMax;
+    var xScale = R.linearScale(0, maxVal, 0, barsZoneW);
 
     var barColor = config.colors[0];
 
@@ -127,42 +161,59 @@
     svg.push('  <g transform="translate(' + marginLeft + ',' + plotTop + ')">');
 
     for (var j = 0; j < data.length; j++) {
-      var y = j * (barThickness + barGap);
-      // Hard cap so even a calculation slip can't push the bar past the
-      // effective plot width (which already excludes label reserve).
-      var barW = Math.max(1, Math.min(effectivePlotWidth, xScale(data[j].value)));
+      var y = j * (barThickness + effBarGap);
+      // Zero value → no bar. We keep the row's slot, the category label
+      // on the left, and the "0" value label on the right, but skip the
+      // rect so the reader doesn't see a misleading 1px sliver.
+      var val = data[j].value;
+      var barW = val === 0 ? 0 : Math.max(1, xScale(val));
 
-      // Label (right-aligned, left of icon)
-      var labelX = iconMaxW > 0 ? -(iconMaxW + iconGap * 2) : -8;
-      var label = R.truncate(data[j].label, rs.maxLabelChars);
-      svg.push('    <text x="' + labelX + '" y="' + (y + barThickness / 2 + rs.labelSize * 0.35).toFixed(1) +
-        '" font-family="' + fonts.label + '" font-size="' + rs.labelSize +
-        '" fill="' + st.labelColor + '" text-anchor="end">' + R.escapeXml(label) + '</text>');
+      // Multi-line label, right-aligned at the end of the label column,
+      // vertically centered against the bar. Truncated labels get the
+      // FADED_LABEL_COLOR so the user can see at a glance which ones
+      // overflowed. Longest label's left edge sits at x ≈ 2 (flush).
+      var lblWrap = wrappedLabels[j];
+      var lblLines = lblWrap.lines.length ? lblWrap.lines : [""];
+      var lblColor = lblWrap.truncated ? R.FADED_LABEL_COLOR : st.labelColor;
+      // Stack lines centred on the bar's vertical centre.
+      var blockH = lblLines.length * LABEL_LINE_H;
+      var firstBaselineY = y + barThickness / 2 - blockH / 2 + rs.labelSize;
+      for (var ln = 0; ln < lblLines.length; ln++) {
+        svg.push('    <text x="' + labelColW.toFixed(1) + '" y="' + (firstBaselineY + ln * LABEL_LINE_H).toFixed(1) +
+          '" font-family="' + fonts.label + '" font-size="' + rs.labelSize +
+          '" fill="' + lblColor + '" text-anchor="end">' + R.escapeXml(lblLines[ln]) + '</text>');
+      }
 
-      // Icon (right of label, between label and bar)
+      // Icon (right of label column, before the bar)
       if (iconMaxW > 0 && data[j]._iconSvg) {
         var dims = R.getIconDims(data[j]._iconSvg, iconH, iconNorm);
-        var icoX = -(iconMaxW + iconGap) + (iconMaxW - dims.w) / 2; // center in allocated space
+        var icoX = labelColW + labelToBarGap + (iconMaxW - dims.w) / 2;
         var icoY = y + (barThickness - dims.h) / 2;
         var icoColor = !isFlags ? (config.rowIconColor || "#009EDB") : null;
         svg.push('    ' + R.buildIconGroup(data[j]._iconSvg, iconH, icoX, icoY, icoColor, iconNorm));
       }
 
-      // Bar
-      svg.push('    <rect x="0" y="' + y + '" width="' + barW.toFixed(1) +
-        '" height="' + barThickness + '" fill="' + barColor + '"/>');
+      // Bar — starts at barStartX (after label column + icon slot).
+      if (barW > 0) {
+        svg.push('    <rect x="' + barStartX.toFixed(1) + '" y="' + y + '" width="' + barW.toFixed(1) +
+          '" height="' + barThickness + '" fill="' + barColor + '"/>');
+      }
 
-      // Value label
+      // Value label — suppressed when value is 0 and user ticked
+      // "Hide 0 value labels" in the Design tab.
       var lblMode = config.barLabelMode || "outside";
-      if (lblMode === "outside") {
-        svg.push('    <text x="' + (barW + 6).toFixed(1) + '" y="' + (y + barThickness / 2 + rs.valueSize * 0.35).toFixed(1) +
-          '" font-family="' + fonts.value + '" font-size="' + rs.valueSize +
-          '" fill="' + st.valueColor + '">' + R.formatNumber(data[j].value, config.numFmt) + '</text>');
-      } else if (lblMode === "inside") {
-        var insX = Math.max(barW - 6, 4);
-        svg.push('    <text x="' + insX.toFixed(1) + '" y="' + (y + barThickness / 2 + rs.valueSize * 0.35).toFixed(1) +
-          '" font-family="' + fonts.value + '" font-size="' + rs.valueSize +
-          '" fill="' + (config.labelColor || "#ffffff") + '" text-anchor="end">' + R.formatNumber(data[j].value, config.numFmt) + '</text>');
+      var hideThisLabel = config.hideZeroLabels && val === 0;
+      if (!hideThisLabel) {
+        if (lblMode === "outside") {
+          svg.push('    <text x="' + (barStartX + barW + 6).toFixed(1) + '" y="' + (y + barThickness / 2 + rs.valueSize * 0.35).toFixed(1) +
+            '" font-family="' + fonts.value + '" font-size="' + rs.valueSize +
+            '" fill="' + st.valueColor + '">' + R.formatNumber(val, config.numFmt) + '</text>');
+        } else if (lblMode === "inside") {
+          var insX = Math.max(barStartX + barW - 6, barStartX + 4);
+          svg.push('    <text x="' + insX.toFixed(1) + '" y="' + (y + barThickness / 2 + rs.valueSize * 0.35).toFixed(1) +
+            '" font-family="' + fonts.value + '" font-size="' + rs.valueSize +
+            '" fill="' + (config.labelColor || "#ffffff") + '" text-anchor="end">' + R.formatNumber(val, config.numFmt) + '</text>');
+        }
       }
     }
 

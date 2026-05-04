@@ -147,6 +147,23 @@ var ChartTypeIcons = (function () {
         '<rect x="4" y="23" width="6" height="2" rx="0.5" fill="currentColor" opacity="0.5"/>' +
         '<rect x="13" y="23" width="6" height="2" rx="0.5" fill="currentColor" opacity="0.5"/>' +
         '<rect x="22" y="23" width="6" height="2" rx="0.5" fill="currentColor" opacity="0.5"/>' +
+      '</svg>',
+
+    "cluster":
+      '<svg viewBox="0 0 32 32" fill="none" stroke-linecap="round" stroke-linejoin="round">' +
+        '<rect class="fill-el" x="4" y="4" width="20" height="3.5" rx="1"/>' +
+        '<rect class="fill-el" x="4" y="9" width="14" height="3.5" rx="1" opacity="0.4"/>' +
+        '<rect class="fill-el" x="4" y="15" width="24" height="3.5" rx="1"/>' +
+        '<rect class="fill-el" x="4" y="20" width="10" height="3.5" rx="1" opacity="0.4"/>' +
+        '<rect class="fill-el" x="4" y="26" width="17" height="3.5" rx="1"/>' +
+      '</svg>',
+
+    "cluster-donut":
+      '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="0">' +
+        '<path d="M9,4.5 a4.5,4.5 0 1,0 0,9 a4.5,4.5 0 1,0 0,-9 M9,7.2 a1.8,1.8 0 1,0 0,3.6 a1.8,1.8 0 1,0 0,-3.6" fill-rule="evenodd" class="fill-el"/>' +
+        '<path d="M23,4.5 a4.5,4.5 0 1,0 0,9 a4.5,4.5 0 1,0 0,-9 M23,7.2 a1.8,1.8 0 1,0 0,3.6 a1.8,1.8 0 1,0 0,-3.6" fill-rule="evenodd" class="fill-el" opacity="0.7"/>' +
+        '<path d="M9,18.5 a4.5,4.5 0 1,0 0,9 a4.5,4.5 0 1,0 0,-9 M9,21.2 a1.8,1.8 0 1,0 0,3.6 a1.8,1.8 0 1,0 0,-3.6" fill-rule="evenodd" class="fill-el" opacity="0.7"/>' +
+        '<path d="M23,18.5 a4.5,4.5 0 1,0 0,9 a4.5,4.5 0 1,0 0,-9 M23,21.2 a1.8,1.8 0 1,0 0,3.6 a1.8,1.8 0 1,0 0,-3.6" fill-rule="evenodd" class="fill-el" opacity="0.4"/>' +
       '</svg>'
   };
 

@@ -1,17 +1,10 @@
-/* ──────────────────────────────────────────────────────────────────
- * TEMPORARY FORK from ocha_dataviz_plugin v2026.0.2 (Phase 1 beta).
- * This file will be consolidated into ../shared/ during Phase 0 once
- * the online tool is validated. If you fix a bug here, apply the
- * same fix to the plugin copy in ocha_dataviz_plugin/client/.
- * ────────────────────────────────────────────────────────────────── */
-
 /**
- * Sankey Diagram Renderer — v1.0
+ * Sankey Diagram Renderer
  *
- * Renders a Sankey flow diagram showing connections between nodes.
- * Data: 3-column rows — Source, Target, Value.
- * Auto-detects multi-level flows (A->B->C) by layering nodes.
- * Uses shared header/footer, responsive system, and style palettes.
+ * Renders a Sankey flow diagram showing weighted connections between
+ * nodes. Data: 3-column rows — Source, Target, Value. Multi-level
+ * flows (A → B → C) are detected automatically and laid out in
+ * columns.
  */
 
 /* global ChartRegistry */
@@ -34,20 +27,21 @@
     var linkOpacity = (config.sankeyLinkOpacity != null ? config.sankeyLinkOpacity : 0.4);
     var labelMode = config.sankeyLabelMode || "both";
 
-    var marginLeft = 10;
+    // Flush-left: leftmost source nodes at x=0, aligned with title
+    var marginLeft = 0;
     var marginRight = 10;
 
     // ── Header ────────────────────────────────────────
     var header = R.renderHeader({
-      x: marginLeft, startY: 6,
+      x: 0, startY: 6,
       title: title,
       subtitle: config.subtitle,
       comments: config.comments,
       rs: rs, style: st, vPad: vPad,
-      maxWidth: svgW
+      maxWidth: svgW, widthPercent: config.headerTextWidth
     });
 
-    var chartTop = header.height || (rs.marginTop + 4);
+    var chartTop = R.computePlotTop(rs, header);
 
     // ── Parse data: build nodes and links ─────────────
     var nodeMap = {}; // name -> { name, incoming: num, outgoing: num, index }
@@ -147,7 +141,8 @@
 
     // Label measurement: estimate max label width for left and right columns
     var fontSize = rs.labelSize;
-    var avgCharW = fontSize * 0.55;
+    // Sankey labels render in fonts.label (Roboto Condensed)
+    var avgCharW = fontSize * R.LABEL_ADVANCE;
 
     // Estimate label widths for left and right labels
     var leftLabelW = 0;
@@ -156,15 +151,20 @@
       for (var eni = 0; eni < levels[eli].length; eni++) {
         var nd = levels[eli][eni];
         var lblText = buildLabelText(nd.name, nd.totalFlow, labelMode, config.numFmt);
-        var lblW = lblText.length * avgCharW + 6;
+        var lblW = lblText.length * avgCharW;
         if (eli === 0) leftLabelW = Math.max(leftLabelW, lblW);
         if (eli === levels.length - 1) rightLabelW = Math.max(rightLabelW, lblW);
       }
     }
 
-    // Diagram area: leave room for left and right labels
-    var diagramLeft = Math.min(leftLabelW + 4, chartWidth * 0.25);
-    var diagramRight = chartWidth - Math.min(rightLabelW + 4, chartWidth * 0.25);
+    // Diagram area: leave just enough room for left/right labels.
+    // Source labels are drawn at nodePos.x - 4 with text-anchor="end",
+    // so the label's LEFT edge sits at diagramLeft - 4 - leftLabelW.
+    // Setting diagramLeft = leftLabelW + 4 puts that left edge exactly
+    // at x=0 — perceptually flush with the title (no spurious padding).
+    var labelGap = 4;
+    var diagramLeft = Math.min(leftLabelW + labelGap, chartWidth * 0.25);
+    var diagramRight = chartWidth - Math.min(rightLabelW + labelGap, chartWidth * 0.25);
     var diagramWidth = diagramRight - diagramLeft;
 
     // X positions for each level
@@ -277,12 +277,13 @@
     var chartH = maxNodeBottom + 10;
 
     // ── Footer ────────────────────────────────────────
-    var footerStartY = chartTop + chartH;
+    // Gap added by computeFooterStart only when footer has text
+    var footerStartY = R.computeFooterStart(rs, chartTop + chartH, !!config.footer);
     var footer = R.renderFooter({
-      x: marginLeft, startY: footerStartY,
+      x: 0, startY: footerStartY,
       footer: config.footer,
       rs: rs, style: st, vPad: vPad,
-      maxWidth: svgW
+      maxWidth: svgW, widthPercent: config.footerTextWidth
     });
 
     var svgH = config.height || (footerStartY + footer.height + rs.marginBottom);
@@ -361,16 +362,29 @@
           anchor = "start";
         }
 
-        // Truncate if needed
+        // Wrap to up to 3 lines that fit within the available label
+        // width. Truncated labels get the last line ellipsised AND
+        // are rendered in faded grey so the user can spot them at a
+        // glance. Multi-line labels are vertically centred on the
+        // node's centre.
         var maxLabelW = (lNode.level === 0 || lNode.level === maxLevel)
           ? chartWidth * 0.25 : chartWidth * 0.15;
-        var maxChars = Math.floor(maxLabelW / avgCharW);
-        var displayText = R.truncate(text, maxChars);
-
-        svg.push('    <text x="' + textX.toFixed(1) + '" y="' + textY.toFixed(1) +
-          '" font-family="' + fonts.label + '" font-size="' + fontSize +
-          '" fill="' + st.labelColor + '" text-anchor="' + anchor + '">' +
-          R.escapeXml(displayText) + '</text>');
+        var wrap = R.wrapToFit(text, fontSize, maxLabelW, 3, R.LABEL_ADVANCE);
+        if (!wrap.fits) {
+          R.pushWarning("label-truncated", { count: 1,
+            suggestion: "Try a wider chart or shorter source/target names" });
+        }
+        var lblColor = wrap.truncated ? R.FADED_LABEL_COLOR : st.labelColor;
+        var lblLines = wrap.lines.length ? wrap.lines : [text];
+        var lineH = Math.round(fontSize * 1.2);
+        var blockH = (lblLines.length - 1) * lineH;
+        var firstY = textY - blockH / 2;
+        for (var ln = 0; ln < lblLines.length; ln++) {
+          svg.push('    <text x="' + textX.toFixed(1) + '" y="' + (firstY + ln * lineH).toFixed(1) +
+            '" font-family="' + fonts.label + '" font-size="' + fontSize +
+            '" fill="' + lblColor + '" text-anchor="' + anchor + '">' +
+            R.escapeXml(lblLines[ln]) + '</text>');
+        }
       }
     }
 

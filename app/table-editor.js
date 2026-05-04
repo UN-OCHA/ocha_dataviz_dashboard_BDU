@@ -25,7 +25,8 @@ var TableEditor = (function () {
 
   // Charts that don't use {label, value} data have specialized columns.
   function columnsFor(type) {
-    if (type === "stacked-bar" || type === "stacked-col") {
+    if (type === "stacked-bar" || type === "stacked-col" ||
+        type === "cluster" || type === "cluster-donut") {
       return [
         { key: "label", label: "Label", type: "text" },
         { key: "series", label: "Series", type: "text" },
@@ -124,10 +125,11 @@ var TableEditor = (function () {
       var TYPES = [
         ["hbar", "Horizontal bar"], ["vbar", "Vertical bar"],
         ["stacked-bar", "Stacked bar"], ["stacked-col", "Stacked column"],
+        ["cluster", "Cluster bar"], ["cluster-donut", "Cluster donut"],
         ["donut", "Donut"], ["pie", "Pie"],
         ["line", "Line"], ["bubble", "Bubble"],
         ["sankey", "Sankey"], ["icon", "Icon / pictogram"],
-        ["table", "Table"], ["text", "Text block"]
+        ["table", "Table"], ["timeline", "Timeline"], ["text", "Text block"]
       ];
       TYPES.forEach(function (t) {
         var o = document.createElement("option");
@@ -612,6 +614,23 @@ var TableEditor = (function () {
       // horizontal timeline: more spacing → fewer events per row →
       // more rows. Range 60-250 px matches the plugin.
       box.appendChild(sliderOption("Event spacing", chart, "timelineEventSpacing", 60, 250, 5, ctx, 90, "px"));
+    }
+
+    if (t === "cluster") {
+      box.appendChild(selectOption("Layout", chart, "clusterOrientation", [
+        ["horizontal", "Horizontal bars"],
+        ["vertical",   "Vertical columns"]
+      ], ctx, "horizontal"));
+      // 0 = auto (engine derives gap from bar size); slider lets user
+      // override when categories crowd together.
+      box.appendChild(sliderOption("Bar spacing", chart, "barSpacing", 0, 60, 1, ctx, 0, "px"));
+    }
+
+    if (t === "cluster-donut") {
+      // Same hole + center-total controls as the single donut.
+      box.appendChild(sliderOption("Donut hole", chart, "donutHole", 0, 90, 5, ctx, 60, "%"));
+      box.appendChild(checkboxOption("Show total in centre of each donut", chart, "donutCenterAuto", ctx, true));
+      box.appendChild(checkboxOption("Show shared legend at the top", chart, "clusterDonutLegend", ctx, true));
     }
 
     if (t === "sankey") {

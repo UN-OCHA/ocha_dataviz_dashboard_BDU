@@ -1,10 +1,17 @@
 /**
- * Stacked Horizontal Bar Chart Renderer — v9
+ * Stacked Horizontal Bar Chart Renderer
  *
- * Expects multi-value data: [{label, values: [v1, v2, ...]}]
- * Each segment is a different color from the palette.
- * Labels on left, segments stacked horizontally.
- * v10: inline icon/flag column support.
+ * Data shape: [{label, values: [v1, v2, ...]}]
+ *
+ * Each row → one bar split into N segments (one per series). Category
+ * labels wrap to up to 3 lines and are right-aligned at the right
+ * edge of a label column whose width auto-fits the longest wrapped
+ * line, so that line's LEFT edge sits flush at x ≈ 0.
+ *
+ * Inside-segment values are drawn when they fit. Consecutive segments
+ * that don't fit are merged into a single callout above the bar with
+ * a colour-dot per value, joined by a short bracket leader. The row
+ * total prints at the end of the bar.
  */
 
 /* global ChartRegistry */
@@ -21,10 +28,16 @@
     var svgW = ctx.svgW, rs = ctx.rs, vPad = ctx.vPad, st = ctx.st, fonts = ctx.fonts;
 
     var barThickness = config.barThickness || rs.barThickness;
-    var barGap = rs.barGap;
+    // User-configurable bar spacing (vertical gap between stacked rows).
+    // The render still grows this further when multi-line labels would
+    // overhang, so the user value is a floor on the gap.
+    var barGap = (config.barSpacing && config.barSpacing > 0) ? config.barSpacing : rs.barGap;
+
+    // Flush-left composition: no left margin.
+    var marginLeft = 0;
     var marginRight = rs.marginRight;
 
-    // Icon column
+    // Icon column (flags/icons between label and bar)
     var hasIcons = config.iconColType && config.iconColType !== "none";
     var isFlags = config.iconColType === "flags";
     var iconNorm = hasIcons ? (isFlags ? 1.5 : 1.0) : false;
@@ -34,17 +47,7 @@
     var iconGap = 6;
     var iconMaxW = hasIcons ? R.maxIconWidth(data, iconH, iconNorm) : 0;
 
-    // Left margin from longest label + icon + gap space
-    var maxLabelLen = 0;
-    for (var i = 0; i < data.length; i++) {
-      if (data[i].label.length > maxLabelLen) maxLabelLen = data[i].label.length;
-    }
-    var marginLeft = Math.min(svgW * 0.35, Math.max(rs.marginLeft, maxLabelLen * rs.labelSize * 0.55));
-    if (iconMaxW > 0) {
-      marginLeft += iconMaxW + iconGap * 2; // space for icon between label and bar
-    }
-
-    // Number of series (value columns)
+    // Number of series
     var seriesCount = 0;
     for (var sc = 0; sc < data.length; sc++) {
       if (data[sc].values && data[sc].values.length > seriesCount) {
@@ -55,22 +58,84 @@
 
     // Header
     var header = R.renderHeader({
-      x: marginLeft,
-      startY: 6,
-      title: title,
-      subtitle: config.subtitle,
-      comments: config.comments,
-      rs: rs,
-      style: st,
-      vPad: vPad,
-      maxWidth: svgW
+      x: 0, startY: 6,
+      title: title, subtitle: config.subtitle, comments: config.comments,
+      rs: rs, style: st, vPad: vPad,
+      maxWidth: svgW, widthPercent: config.headerTextWidth
     });
 
-    var plotTop = header.height || rs.marginTop;
-    var plotWidth = svgW - marginLeft - marginRight;
-    var plotHeight = data.length * (barThickness + barGap) - barGap;
+    var plotTop = R.computePlotTop(rs, header);
 
-    // Find max row total for scale
+    // Optional legend above the plot
+    var legend = { svg: [], height: 0 };
+    if (config.stackedLegend && config.seriesNames && config.seriesNames.length) {
+      legend = R.renderStackedLegend({
+        x: 0, startY: plotTop,
+        names: config.seriesNames,
+        colors: config.colors,
+        rs: rs, style: st,
+        maxWidth: svgW,
+        hasSubtitle: !!config.subtitle
+      });
+      plotTop += legend.height;
+    }
+
+    var plotWidth = svgW - marginLeft - marginRight;
+
+    // ─── Category labels: wrap to up to 2 lines ────────────
+    // Labels are right-aligned within a column; the column's width is
+    // the max rendered line width across all labels.
+    var LABEL_LINE_H = Math.round(rs.labelSize * 1.2);
+    // Cap label column at ~28% of plotWidth to leave room for bars.
+    var labelTargetW = Math.min(plotWidth * 0.28, 170);
+    var wrappedLabels = [];
+    var maxLineW = 0;
+    var maxLines = 1;
+    var truncCount = 0;
+    for (var i = 0; i < data.length; i++) {
+      // Wrap each category label into up to 3 lines. Truncated labels
+      // (more than 3 lines after wrap) are rendered in faded grey so
+      // the user can see at a glance which ones overflowed.
+      var wrap = R.wrapToFit(String(data[i].label || ""),
+        rs.labelSize, labelTargetW, 3, R.LABEL_ADVANCE);
+      wrappedLabels.push(wrap);
+      if (!wrap.fits) truncCount++;
+      if (wrap.lines.length > maxLines) maxLines = wrap.lines.length;
+      for (var l = 0; l < wrap.lines.length; l++) {
+        var lw = wrap.lines[l].length * rs.labelSize * R.LABEL_ADVANCE;
+        if (lw > maxLineW) maxLineW = lw;
+      }
+    }
+    if (truncCount > 0) {
+      R.pushWarning("label-truncated", {
+        count: truncCount,
+        suggestion: "Try a wider chart or shorter category labels"
+      });
+    }
+    // Column width = exactly what the longest wrapped line needs, plus
+    // a 2-px glyph-bearing safety margin. No minimum floor: short
+    // labels collapse the column so the longest one always sits at
+    // x ≈ 2 (perceptually flush with the title), regardless of dataset.
+    var labelColW = maxLineW + 2;
+    var labelBlockH = maxLines * LABEL_LINE_H;
+
+    // If wrapped labels extend beyond barThickness, inflate the row gap.
+    // The actual gap used between rows is `betweenBarH` further down,
+    // which combines this overhang with the callout strip and the
+    // user-set bar spacing.
+    var labelOverhang = Math.max(0, (labelBlockH - barThickness) / 2);
+
+    // Bar starts after label column + gap + optional icon slot
+    var labelToBarGap = 12;
+    var iconSlotW = iconMaxW > 0 ? (iconMaxW + iconGap) : 0;
+    var barStartX = labelColW + labelToBarGap + iconSlotW;
+
+    // Reserve room on the right for row totals
+    var totalReserve = 40;
+    var barsZoneW = plotWidth - barStartX - totalReserve;
+    if (barsZoneW < 40) barsZoneW = 40;
+
+    // Row totals for scale
     var maxTotal = 0;
     for (var mt = 0; mt < data.length; mt++) {
       if (!data[mt].values) continue;
@@ -81,26 +146,110 @@
       if (rowTotal > maxTotal) maxTotal = rowTotal;
     }
     if (maxTotal === 0) maxTotal = 1;
-    // ── FORK PATCH (online tool): reserve room for the row total label
-    // (rendered at the right of each row) so the longest row never escapes
-    // the SVG. Reserve = max(text-width estimate, 18% of plot width).
-    var totalTextChars = String(R.formatNumber(maxTotal, config.numFmt)).length;
-    var textBased = 6 + Math.ceil(totalTextChars * rs.valueSize * 0.66) + 10;
-    var percentBased = Math.ceil(plotWidth * 0.18);
-    var labelReserve = Math.max(textBased, percentBased);
-    var effectivePlotWidth = Math.max(20, plotWidth - labelReserve);
-    var xScale = R.linearScale(0, maxTotal, 0, effectivePlotWidth);
+    if (config.axisMax != null && config.axisMax > 0) maxTotal = config.axisMax;
+    var xScale = R.linearScale(0, maxTotal, 0, barsZoneW);
 
-    // Footer
-    var footerStartY = plotTop + plotHeight;
+    // ─── Segment labels: inside if fits, else cluster callout ──
+    var insideFont = Math.max(7, rs.valueSize - 1);
+    var CALLOUT_FONT = Math.max(5, insideFont - 3);
+    var INSIDE_FIT_PAD = 4;
+    var CALLOUT_BASE_GAP = 5;
+
+    var lblModeForLayout = config.barLabelMode || "outside";
+    var labelsOn = lblModeForLayout !== "none" && lblModeForLayout !== "total";
+
+    function fitsInside(segW, valText) {
+      // Inside-segment values render in fonts.value (Roboto Condensed)
+      var textW = valText.length * insideFont * R.LABEL_ADVANCE;
+      return segW >= textW + INSIDE_FIT_PAD;
+    }
+
+    // When a row has exactly one non-zero segment AND the row total is
+    // also being printed at the end of the bar, the segment label would
+    // just duplicate the total. Skip the segment label (and any
+    // callout) in that case — keep only the total.
+    function redundantSegLabel(row) {
+      if (lblModeForLayout !== "outside") return false;
+      var vals = row.values || [];
+      var nz = 0;
+      var total = 0;
+      for (var k = 0; k < vals.length; k++) {
+        var v = Math.abs(vals[k]);
+        total += v;
+        if (v > 0) nz++;
+      }
+      if (nz !== 1) return false;
+      // If hideZeroLabels is on and the total is 0, the total won't
+      // print either — so the segment label isn't redundant.
+      if (config.hideZeroLabels && total === 0) return false;
+      return true;
+    }
+
+    // Build per-bar clusters of consecutive small segments. Each
+    // cluster becomes ONE callout — values printed in order, each
+    // preceded by a tiny dot colored to match its segment so the
+    // reader can map dot → stack segment at a glance.
+    var barClusters = [];
+    var anyCallouts = false;
+    for (var j = 0; j < data.length; j++) {
+      var vals = data[j].values || [];
+      var clusters = [];
+      var skipThisRow = redundantSegLabel(data[j]);
+      if (labelsOn && !skipThisRow) {
+        var current = null;
+        var xOffPre = 0;
+        for (var s = 0; s < vals.length; s++) {
+          var sv = Math.abs(vals[s]);
+          if (sv === 0) continue;
+          var sw = xScale(sv);
+          var vt = R.formatNumber(sv, config.numFmt);
+          var segColorPre = config.colors[s % config.colors.length];
+          if (fitsInside(sw, vt)) {
+            if (current) { clusters.push(current); current = null; }
+          } else {
+            if (!current) current = { startX: barStartX + xOffPre, items: [] };
+            current.items.push({
+              text: vt,
+              color: segColorPre,
+              cx: barStartX + xOffPre + sw / 2
+            });
+            current.endX = barStartX + xOffPre + sw;
+          }
+          xOffPre += sw;
+        }
+        if (current) clusters.push(current);
+        for (var c = 0; c < clusters.length; c++) {
+          clusters[c].cx = (clusters[c].startX + clusters[c].endX) / 2;
+        }
+        if (clusters.length > 0) anyCallouts = true;
+      }
+      barClusters.push(clusters);
+    }
+
+    // Reserve a compact strip above each bar for callouts when needed.
+    var calloutSpace = anyCallouts ? (CALLOUT_FONT + CALLOUT_BASE_GAP + 2) : 0;
+
+    // Bar row vertical layout. The space BETWEEN bars is shared by:
+    //   - the upper bar's label overhang (if the wrapped label is
+    //     taller than the bar)
+    //   - the lower bar's callout strip (+ its label overhang)
+    //   - a minimum "bar gap" for visual breathing room
+    // One number covers all three (no double-counting).
+    var betweenBarH = Math.max(calloutSpace, labelOverhang, barGap);
+    var topPadding    = Math.max(calloutSpace, labelOverhang);  // above bar 0
+    var bottomPadding = labelOverhang;                           // below last bar
+    var plotHeight = topPadding +
+                     data.length * barThickness +
+                     (data.length - 1) * betweenBarH +
+                     bottomPadding;
+
+    // Footer — gap added by computeFooterStart only when footer has text
+    var footerStartY = R.computeFooterStart(rs, plotTop + plotHeight, !!config.footer);
     var footer = R.renderFooter({
-      x: marginLeft,
-      startY: footerStartY,
+      x: 0, startY: footerStartY,
       footer: config.footer,
-      rs: rs,
-      style: st,
-      vPad: vPad,
-      maxWidth: svgW
+      rs: rs, style: st, vPad: vPad,
+      maxWidth: svgW, widthPercent: config.footerTextWidth
     });
 
     var svgH = config.height || (footerStartY + footer.height + rs.marginBottom);
@@ -108,29 +257,40 @@
     var svg = [];
     svg.push(R.svgOpen(svgW, svgH));
     svg.push(R.svgBg(svgW, svgH));
-
     for (var hi = 0; hi < header.svg.length; hi++) svg.push(header.svg[hi]);
+    for (var li = 0; li < legend.svg.length; li++) svg.push(legend.svg[li]);
 
     svg.push('  <g transform="translate(' + marginLeft + ',' + plotTop + ')">');
 
-    for (var j = 0; j < data.length; j++) {
-      var y = j * (barThickness + barGap);
-      var xOff = 0;
+    for (var j2 = 0; j2 < data.length; j2++) {
+      // Bar top = topPadding above bar 0, plus (barThickness + betweenBarH)
+      // for each subsequent bar.
+      var y = topPadding + j2 * (barThickness + betweenBarH);
 
-      // Label (right-aligned, left of icon)
-      var labelX = iconMaxW > 0 ? -(iconMaxW + iconGap * 2) : -8;
-      var label = R.truncate(data[j].label, rs.maxLabelChars);
-      svg.push('    <text x="' + labelX + '" y="' + (y + barThickness / 2 + rs.labelSize * 0.35).toFixed(1) +
-        '" font-family="' + fonts.label + '" font-size="' + rs.labelSize +
-        '" fill="' + st.labelColor + '" text-anchor="end">' + R.escapeXml(label) + '</text>');
+      // Category label — multi-line, right-aligned at x = labelColW,
+      // vertically centered against the bar. Truncated labels render
+      // in faded grey to flag the overflow.
+      var lblWrap = wrappedLabels[j2];
+      var lines = lblWrap.lines;
+      var lblColor = lblWrap.truncated ? R.FADED_LABEL_COLOR : st.labelColor;
+      var actualBlockH = lines.length * LABEL_LINE_H;
+      var labelBlockTopY = y + (barThickness - actualBlockH) / 2;
+      var lineBaseY = labelBlockTopY + rs.labelSize;
+      for (var ln = 0; ln < lines.length; ln++) {
+        svg.push('    <text x="' + labelColW.toFixed(1) + '" y="' + lineBaseY.toFixed(1) +
+          '" font-family="' + fonts.label + '" font-size="' + rs.labelSize +
+          '" fill="' + lblColor + '" text-anchor="end">' +
+          R.escapeXml(lines[ln]) + '</text>');
+        lineBaseY += LABEL_LINE_H;
+      }
 
-      // Icon (right of label, between label and bar)
-      if (iconMaxW > 0 && data[j]._iconSvg) {
-        var dims = R.getIconDims(data[j]._iconSvg, iconH, iconNorm);
-        var icoX = -(iconMaxW + iconGap) + (iconMaxW - dims.w) / 2;
+      // Icon between label column and bar
+      if (iconMaxW > 0 && data[j2]._iconSvg) {
+        var dims = R.getIconDims(data[j2]._iconSvg, iconH, iconNorm);
+        var icoX = labelColW + labelToBarGap + (iconMaxW - dims.w) / 2;
         var icoY = y + (barThickness - dims.h) / 2;
         var icoColor = !isFlags ? (config.rowIconColor || "#009EDB") : null;
-        svg.push('    ' + R.buildIconGroup(data[j]._iconSvg, iconH, icoX, icoY, icoColor, iconNorm));
+        svg.push('    ' + R.buildIconGroup(data[j2]._iconSvg, iconH, icoX, icoY, icoColor, iconNorm));
       }
 
       // Stroke config
@@ -140,47 +300,120 @@
         : '';
 
       // Stacked segments
-      for (var s = 0; s < data[j].values.length; s++) {
-        var segVal = Math.abs(data[j].values[s]);
+      var xOff = 0;
+      for (var s2 = 0; s2 < data[j2].values.length; s2++) {
+        var segVal = Math.abs(data[j2].values[s2]);
         if (segVal === 0) continue;
         var segW = xScale(segVal);
-        var segColor = config.colors[s % config.colors.length];
-
+        var segColor = config.colors[s2 % config.colors.length];
         var actualW = Math.max(1, segW);
+        var rectX = barStartX + xOff;
 
-        svg.push('    <rect x="' + xOff.toFixed(1) + '" y="' + y +
+        svg.push('    <rect x="' + rectX.toFixed(1) + '" y="' + y +
           '" width="' + actualW.toFixed(1) + '" height="' + barThickness +
           '" fill="' + segColor + '"' + strokeAttr + '/>');
 
-        // Value inside segment if wide enough
-        var lblMode = config.barLabelMode || "outside";
-        if (lblMode !== "none" && lblMode !== "total" && segW > 24) {
-          var txtColor = config.labelColor ? st.valueColor : R.contrastText(segColor);
-          svg.push('    <text x="' + (xOff + segW / 2).toFixed(1) + '" y="' +
-            (y + barThickness / 2 + rs.valueSize * 0.35).toFixed(1) +
-            '" font-family="' + fonts.value + '" font-size="' + Math.max(7, rs.valueSize - 1) +
-            '" fill="' + txtColor + '" text-anchor="middle">' + R.formatNumber(segVal, config.numFmt) + '</text>');
+        // Inside label if it fits; skipped when this row has only one
+        // non-zero segment and the total at the end would duplicate it.
+        if (labelsOn && !redundantSegLabel(data[j2])) {
+          var valText = R.formatNumber(segVal, config.numFmt);
+          if (fitsInside(segW, valText)) {
+            var txtColor = config.labelColor ? st.valueColor : R.contrastText(segColor);
+            svg.push('    <text x="' + (rectX + segW / 2).toFixed(1) + '" y="' +
+              (y + barThickness / 2 + insideFont * 0.35).toFixed(1) +
+              '" font-family="' + fonts.value + '" font-size="' + insideFont +
+              '" fill="' + txtColor + '" text-anchor="middle">' + valText + '</text>');
+          }
         }
 
         xOff += segW;
       }
 
-      // Total value at end
+      // Cluster callouts above the bar.
+      //
+      // Two or more consecutive small segments → one dots-strip:
+      //   [• value • value …] centred on the cluster, dots coloured
+      //   to match each segment. The leader is a short bracket: a
+      //   horizontal line spanning the cluster width at the bottom,
+      //   joined to a vertical stem rising to the dots-strip. Leaves
+      //   a small gap between the bracket and the bar (not touching).
+      // One small segment → simple vertical leader + centred value.
+      //   Still not touching the bar.
+      var myClusters = barClusters[j2] || [];
+      var DOT_R = 1.5;
+      var DOT_GAP = 1;      // dot → text  (tight)
+      var PAIR_GAP = 3;     // (text end) → (next dot)
+      var LEADER_BAR_GAP = 2;   // gap between leader bottom and bar top
+      for (var mc = 0; mc < myClusters.length; mc++) {
+        var cl = myClusters[mc];
+        var coBaseY = y - CALLOUT_BASE_GAP;
+        var items = cl.items;
+        // Where the leader bottoms out — not touching the bar.
+        var leaderBottomY = y - LEADER_BAR_GAP;
+
+        if (items.length >= 2) {
+          // Bracket leader: horizontal span across cluster + vertical stem
+          svg.push('    <line x1="' + cl.startX.toFixed(1) + '" y1="' + leaderBottomY.toFixed(1) +
+            '" x2="' + cl.endX.toFixed(1) + '" y2="' + leaderBottomY.toFixed(1) +
+            '" stroke="#8A8A8A" stroke-width="0.5" opacity="0.6"/>');
+          svg.push('    <line x1="' + cl.cx.toFixed(1) + '" y1="' + (coBaseY + 1).toFixed(1) +
+            '" x2="' + cl.cx.toFixed(1) + '" y2="' + leaderBottomY.toFixed(1) +
+            '" stroke="#8A8A8A" stroke-width="0.5" opacity="0.6"/>');
+
+          // Dots-strip (centred on cluster cx)
+          var totalW = 0;
+          var pairWidths = [];
+          for (var it = 0; it < items.length; it++) {
+            // Callout text uses fonts.value (Roboto Condensed)
+            var textW = items[it].text.length * CALLOUT_FONT * R.LABEL_ADVANCE;
+            var pairW = DOT_R * 2 + DOT_GAP + textW;
+            pairWidths.push(pairW);
+            totalW += pairW;
+          }
+          totalW += Math.max(0, items.length - 1) * PAIR_GAP;
+          var cursorX = cl.cx - totalW / 2;
+          var dotCy = coBaseY - CALLOUT_FONT * 0.32;
+          for (var it2 = 0; it2 < items.length; it2++) {
+            var dotCx = cursorX + DOT_R;
+            svg.push('    <circle cx="' + dotCx.toFixed(1) + '" cy="' + dotCy.toFixed(1) +
+              '" r="' + DOT_R + '" fill="' + items[it2].color + '"/>');
+            var textX = cursorX + DOT_R * 2 + DOT_GAP;
+            svg.push('    <text x="' + textX.toFixed(1) + '" y="' + coBaseY.toFixed(1) +
+              '" font-family="' + fonts.value + '" font-size="' + CALLOUT_FONT +
+              '" fill="' + st.valueColor + '" text-anchor="start">' +
+              R.escapeXml(items[it2].text) + '</text>');
+            cursorX += pairWidths[it2] + PAIR_GAP;
+          }
+        } else {
+          // Single segment — simple vertical leader with a small gap
+          // above the bar (still not touching).
+          var item = items[0];
+          svg.push('    <line x1="' + item.cx.toFixed(1) + '" y1="' + (coBaseY + 1).toFixed(1) +
+            '" x2="' + item.cx.toFixed(1) + '" y2="' + leaderBottomY.toFixed(1) +
+            '" stroke="#8A8A8A" stroke-width="0.5" opacity="0.6"/>');
+          svg.push('    <text x="' + item.cx.toFixed(1) + '" y="' + coBaseY.toFixed(1) +
+            '" font-family="' + fonts.value + '" font-size="' + CALLOUT_FONT +
+            '" fill="' + st.valueColor + '" text-anchor="middle">' +
+            R.escapeXml(item.text) + '</text>');
+        }
+      }
+
+      // Row total at end of bar
       var lblMode2 = config.barLabelMode || "outside";
       if (lblMode2 === "outside" || lblMode2 === "total") {
         var rowTot = 0;
-        for (var rv = 0; rv < data[j].values.length; rv++) rowTot += Math.abs(data[j].values[rv]);
-        svg.push('    <text x="' + (xOff + 6).toFixed(1) + '" y="' +
-          (y + barThickness / 2 + rs.valueSize * 0.35).toFixed(1) +
-          '" font-family="' + fonts.value + '" font-size="' + rs.valueSize +
-          '" fill="' + st.valueColor + '">' + R.formatNumber(rowTot, config.numFmt) + '</text>');
+        for (var rv = 0; rv < data[j2].values.length; rv++) rowTot += Math.abs(data[j2].values[rv]);
+        if (!(config.hideZeroLabels && rowTot === 0)) {
+          svg.push('    <text x="' + (barStartX + xOff + 6).toFixed(1) + '" y="' +
+            (y + barThickness / 2 + rs.valueSize * 0.35).toFixed(1) +
+            '" font-family="' + fonts.value + '" font-size="' + rs.valueSize +
+            '" fill="' + st.valueColor + '">' + R.formatNumber(rowTot, config.numFmt) + '</text>');
+        }
       }
     }
 
     svg.push('  </g>');
-
     for (var fi = 0; fi < footer.svg.length; fi++) svg.push(footer.svg[fi]);
-
     svg.push('</svg>');
     return svg.join("\n");
   }

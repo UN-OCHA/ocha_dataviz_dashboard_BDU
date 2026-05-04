@@ -1,18 +1,10 @@
-/* ──────────────────────────────────────────────────────────────────
- * TEMPORARY FORK from ocha_dataviz_plugin v2026.0.2 (Phase 1 beta).
- * This file will be consolidated into ../shared/ during Phase 0 once
- * the online tool is validated. If you fix a bug here, apply the
- * same fix to the plugin copy in ocha_dataviz_plugin/client/.
- * ────────────────────────────────────────────────────────────────── */
-
 /**
- * Line Chart Renderer — v9.3
+ * Line Chart Renderer
  *
- * v9.3 changes:
- * - Proportional circle (dot) radius based on chart width
- * - Horizontal labels when chart is large enough
- * - Smart label positioning: labels move below point or to the side
- *   when they would overlap the line
+ * Single-series line with optional dots and value labels. Dot radius
+ * is proportional to chart width; value labels are placed above the
+ * point by default, but auto-shift below or to the side when they'd
+ * overlap the line itself.
  */
 
 /* global ChartRegistry */
@@ -28,35 +20,56 @@
     var ctx = R.initRender(config);
     var svgW = ctx.svgW, rs = ctx.rs, vPad = ctx.vPad, st = ctx.st, fonts = ctx.fonts;
 
+    // Flush-left: drop the legacy `rs.marginLeft` gutter. The first
+    // dot's left edge now sits at x=0 (its center is offset right by
+    // dotRadius via xInset below).
     var marginRight = rs.marginRight;
-    var marginLeft = rs.marginLeft;
+    var marginLeft = 0;
 
     // Labels: horizontal when chart is large (md/lg), rotated when small or many labels
     var forceRotate = data.length > rs.labelRotateThreshold;
     var rotateLabels = forceRotate && (rs.breakpoint === "xs" || rs.breakpoint === "sm");
-    // Extra bottom space: baseline gap (12) + label height below it
-    var marginBottom = rotateLabels ? Math.max(rs.marginBottom * 3, 65) : Math.max(rs.marginBottom * 2, 48);
 
     var shade = !!config.shade;
 
     // Header
     var header = R.renderHeader({
-      x: marginLeft, startY: 6,
+      x: 0, startY: 6,
       title: title, subtitle: config.subtitle, comments: config.comments,
       rs: rs, style: st, vPad: vPad,
-      maxWidth: svgW
+      maxWidth: svgW, widthPercent: config.headerTextWidth
     });
 
-    var plotTop = header.height || (rs.marginTop + 4);
+    var plotTop = R.computePlotTop(rs, header);
     var plotWidth = svgW - marginLeft - marginRight;
+
+    // Pre-wrap horizontal x-axis labels so marginBottom can grow to
+    // fit multi-line labels. Labels in line charts are usually short
+    // (years, quarters), so this rarely produces multi-line content,
+    // but we still pre-wrap so very long category names don't blow
+    // past the budget.
+    var labelStep = data.length > 1 ? plotWidth / (data.length - 1) : plotWidth;
+    var labelWraps = [];
+    var maxLabelLines = 1;
+    if (!rotateLabels) {
+      var wrapMaxW = Math.max(40, labelStep - 4);
+      for (var pw = 0; pw < data.length; pw++) {
+        var lw = R.wrapToFit(String(data[pw].label || ""),
+          rs.labelSize, wrapMaxW, 3, R.LABEL_ADVANCE);
+        labelWraps.push(lw);
+        if (lw.lines.length > maxLabelLines) maxLabelLines = lw.lines.length;
+      }
+    }
+    var marginBottom = R.measureXAxisLabelBudget(data, rs, rotateLabels, maxLabelLines);
     var plotHeight = config.height ? (config.height - plotTop - marginBottom) : rs.defaultPlotHeight;
 
-    // Footer
-    var footerStartY = plotTop + plotHeight + marginBottom;
+    // Footer — plot bottom is the baseline + the label row that sits below it.
+    // computeFooterStart adds the breakpoint gap only when footer has text.
+    var footerStartY = R.computeFooterStart(rs, plotTop + plotHeight + marginBottom, !!config.footer);
     var footer = R.renderFooter({
-      x: marginLeft, startY: footerStartY,
+      x: 0, startY: footerStartY,
       footer: config.footer, rs: rs, style: st, vPad: vPad,
-      maxWidth: svgW
+      maxWidth: svgW, widthPercent: config.footerTextWidth
     });
 
     var svgH = config.height || (footerStartY + footer.height);
@@ -69,29 +82,40 @@
     }
 
     var scaleMin = minVal;
-    var scale = R.niceScale(scaleMin, maxVal, rs.maxTicks);
+    // User-fixed scale anchor takes precedence over nice-rounded auto max.
+    // Preserves the auto-computed min (so non-zero baselines still work)
+    // while anchoring the top of the axis to the user's typed value.
+    var scale;
+    if (config.axisMax != null && config.axisMax > 0) {
+      scale = { min: scaleMin, max: config.axisMax };
+    } else {
+      scale = R.niceScale(scaleMin, maxVal, rs.maxTicks);
+    }
 
     var yScale = R.linearScale(scale.min, scale.max, plotHeight, 0);
-    // Inset first/last points by dot radius so circles don't extend past margins
-    var xInset = 5;  // small padding to keep dots within margin
-    var usablePlotW = plotWidth - xInset * 2;
+
+    // Fixed data-point radius (user-configurable via Design tab slider).
+    // Does NOT scale with chart width or height by design — labels and
+    // dots stay the same size regardless of canvas dimensions.
+    var dotRadius = (config.lineDotSize != null ? config.lineDotSize : 4);
+    if (dotRadius < 1) dotRadius = 1;
+
+    // Asymmetric inset for flush-left: first dot's center sits at
+    // x = dotRadius so its LEFT EDGE lands at x=0, aligned with title.
+    // Last dot still inset by dotRadius so its right edge fits cleanly.
+    var leftInset = dotRadius;
+    var rightInset = dotRadius;
+    var usablePlotW = plotWidth - leftInset - rightInset;
     var xStep = data.length > 1 ? usablePlotW / (data.length - 1) : usablePlotW / 2;
 
     var lineColor = config.colors[0];
-
-    // Proportional dot radius: scales with width
-    var dotRadius;
-    if (svgW >= 550) dotRadius = 5;
-    else if (svgW >= 350) dotRadius = 4;
-    else if (svgW >= 200) dotRadius = 3;
-    else dotRadius = 2.5;
 
     var strokeW = rs.strokeWidth;
 
     // Calculate points
     var points = [];
     for (var p = 0; p < data.length; p++) {
-      var px = data.length > 1 ? xInset + p * xStep : plotWidth / 2;
+      var px = data.length > 1 ? leftInset + p * xStep : plotWidth / 2;
       var py = yScale(data[p].value);
       points.push({ x: px, y: py });
     }
@@ -181,6 +205,25 @@
       var gap = (showDots ? dotRadius : 0) + (labelBg !== "none" ? 7 : 4);
       var labelH = rs.valueSize;
 
+      // Plot-area bounds for the label's glyph BOX. The text baseline
+      // sits at valY; the glyph extends roughly from valY-0.8·labelH
+      // (cap top) to valY+0.2·labelH (descender). For the auto path
+      // we use the conservative box [y-labelH, y] (cap-to-baseline).
+      // The baseline of the chart sits a few pixels below plotHeight
+      // (drawn at plotHeight+baselineGap) — a label whose descender
+      // crowds the baseline still reads as "too close to the axis",
+      // so we keep a small safety margin above plotHeight too.
+      var BASELINE_SAFETY = 3; // visual breathing room above the X axis line
+      var aboveTop = points[d].y - gap - labelH;
+      var aboveBot = points[d].y - gap;
+      var belowTop = points[d].y + gap;
+      var belowBot = points[d].y + gap + labelH;
+
+      // Does each side overflow the plot? Boolean — used as a hard
+      // constraint, not a soft preference.
+      var aboveOverflow = aboveTop < 0;
+      var belowOverflow = belowBot > (plotHeight - BASELINE_SAFETY);
+
       if (labelPos === "below") {
         labelAbove = false;
       } else if (labelPos === "above") {
@@ -188,23 +231,28 @@
       } else {
         // "auto" — geometric overlap check against line segments
         // Use actual label center (valX) not point x, so shifted first/last labels are checked correctly
-        var aboveTop = points[d].y - gap - labelH;
-        var aboveBot = points[d].y - gap;
-        var belowTop = points[d].y + gap;
-        var belowBot = points[d].y + gap + labelH;
-
         var abovePenalty = calcLinePenalty(points, d, valX, halfText, aboveTop, aboveBot);
         var belowPenalty = calcLinePenalty(points, d, valX, halfText, belowTop, belowBot);
 
-        labelAbove = abovePenalty <= belowPenalty;
+        // Plot-bound overflow is a HARD constraint — line overlap is
+        // a softer aesthetic concern. Add a large penalty when a side
+        // would overflow so the other side wins regardless of line
+        // overlap. If both would overflow we still pick the lesser
+        // line-penalty (graceful degradation on tiny charts).
+        if (aboveOverflow) abovePenalty += 1000;
+        if (belowOverflow) belowPenalty += 1000;
 
-        // Boundary safety: only flip if the alternative is at least as good
-        if (labelAbove && aboveTop < 0 && belowPenalty <= abovePenalty) {
-          labelAbove = false;
-        }
-        if (!labelAbove && belowBot > plotHeight && abovePenalty <= belowPenalty) {
-          labelAbove = true;
-        }
+        labelAbove = abovePenalty <= belowPenalty;
+      }
+
+      // Forced-mode safety net: even when the user pinned the label
+      // above or below, never let the label punch through the chart's
+      // top or bottom edge. The user's preference is best-effort; a
+      // visually broken label is worse than honouring the request.
+      if (labelAbove && aboveOverflow && !belowOverflow) {
+        labelAbove = false;
+      } else if (!labelAbove && belowOverflow && !aboveOverflow) {
+        labelAbove = true;
       }
 
       var valY;
@@ -216,8 +264,12 @@
 
       var valAnchor = "middle";
 
+      // Suppress label + background when value is 0 and the user ticked
+      // "Hide 0 value labels". The dot on the line still renders.
+      var hideThisLabel = config.hideZeroLabels && data[d].value === 0;
+
       // Label background rectangle
-      if (labelBg !== "none") {
+      if (!hideThisLabel && labelBg !== "none") {
         var bgPadX = 3;
         var bgPadY = 2;
         var bgX = valX - halfText;
@@ -231,18 +283,22 @@
 
       var valColor = labelBg === "black" ? "#ffffff" : labelBg === "white" ? "#333333" : st.valueColor;
 
-      svg.push('    <text x="' + valX.toFixed(1) + '" y="' + valY.toFixed(1) +
-        '" font-family="' + fonts.value + '" font-size="' + rs.valueSize +
-        '" fill="' + valColor + '" text-anchor="' + valAnchor + '">' + valText + '</text>');
+      if (!hideThisLabel) {
+        svg.push('    <text x="' + valX.toFixed(1) + '" y="' + valY.toFixed(1) +
+          '" font-family="' + fonts.value + '" font-size="' + rs.valueSize +
+          '" fill="' + valColor + '" text-anchor="' + valAnchor + '">' + valText + '</text>');
+      }
     }
 
-    // X-axis labels — placed below the baseline
+    // X-axis labels — placed below the baseline.
+    // Rotated mode: single line, fade if extremely long.
+    // Horizontal mode: pre-wrapped multi-line, fade if truncated.
     var baselineGap = 12;
     var baselineY = plotHeight + baselineGap;
+    var lineH = Math.round(rs.labelSize * 1.2);
     for (var k = 0; k < data.length; k++) {
-      var lx = data.length > 1 ? xInset + k * xStep : plotWidth / 2;
+      var lx = data.length > 1 ? leftInset + k * xStep : plotWidth / 2;
       var ly = baselineY + rs.labelSize + 4;
-      var label = R.truncate(data[k].label, rs.maxLabelChars);
 
       // Anchor: first label "start", last label "end", rest "middle"
       var anchor = "middle";
@@ -252,14 +308,33 @@
       }
 
       if (rotateLabels) {
+        var rotMaxChars = rs.maxLabelChars * 2;
+        var rotText = String(data[k].label || "");
+        var rotTruncated = rotText.length > rotMaxChars;
+        if (rotTruncated) rotText = rotText.substring(0, rotMaxChars - 1) + "…";
+        var rotColor = rotTruncated ? R.FADED_LABEL_COLOR : st.labelColor;
+        if (rotTruncated) {
+          R.pushWarning("label-truncated", { count: 1,
+            suggestion: "Try a wider chart or shorter category labels" });
+        }
         svg.push('    <text x="' + lx.toFixed(1) + '" y="' + ly.toFixed(1) +
           '" font-family="' + fonts.label + '" font-size="' + rs.labelSize +
-          '" fill="' + st.labelColor + '" text-anchor="end" transform="rotate(-45,' + lx.toFixed(1) + ',' + ly.toFixed(1) + ')">' +
-          R.escapeXml(label) + '</text>');
+          '" fill="' + rotColor + '" text-anchor="end" transform="rotate(-45,' + lx.toFixed(1) + ',' + ly.toFixed(1) + ')">' +
+          R.escapeXml(rotText) + '</text>');
       } else {
-        svg.push('    <text x="' + lx.toFixed(1) + '" y="' + ly.toFixed(1) +
-          '" font-family="' + fonts.label + '" font-size="' + rs.labelSize +
-          '" fill="' + st.labelColor + '" text-anchor="' + anchor + '">' + R.escapeXml(label) + '</text>');
+        var wrap = labelWraps[k];
+        if (!wrap.fits) {
+          R.pushWarning("label-truncated", { count: 1,
+            suggestion: "Try a wider chart or shorter category labels" });
+        }
+        var wrapColor = wrap.truncated ? R.FADED_LABEL_COLOR : st.labelColor;
+        var wrapLines = wrap.lines.length ? wrap.lines : [""];
+        for (var ln = 0; ln < wrapLines.length; ln++) {
+          svg.push('    <text x="' + lx.toFixed(1) + '" y="' + (ly + ln * lineH).toFixed(1) +
+            '" font-family="' + fonts.label + '" font-size="' + rs.labelSize +
+            '" fill="' + wrapColor + '" text-anchor="' + anchor + '">' +
+            R.escapeXml(wrapLines[ln]) + '</text>');
+        }
       }
     }
 

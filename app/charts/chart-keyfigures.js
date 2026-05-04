@@ -1,10 +1,3 @@
-/* ──────────────────────────────────────────────────────────────────
- * TEMPORARY FORK from ocha_dataviz_plugin v2026.0.2 (Phase 1 beta).
- * This file will be consolidated into ../shared/ during Phase 0 once
- * the online tool is validated. If you fix a bug here, apply the
- * same fix to the plugin copy in ocha_dataviz_plugin/client/.
- * ────────────────────────────────────────────────────────────────── */
-
 /**
  * Key Figures Chart Renderer
  *
@@ -39,7 +32,8 @@
     var textColor     = config.textColor || "#000000";
     var iconColor     = config.iconColor || (config.colors && config.colors[0]) || "#009EDB";
 
-    var marginLeft  = rs.marginLeft || 10;
+    // Flush-left: first cell sits at x=0 (no centering, no gutter)
+    var marginLeft  = 0;
     var marginRight = rs.marginRight || 10;
 
     // ── Font sizes (scaled from responsive settings)
@@ -60,7 +54,7 @@
 
     // ── Header
     var header = R.renderHeader({
-      x: marginLeft,
+      x: 0,
       startY: 6,
       title: title,
       subtitle: config.subtitle,
@@ -68,16 +62,15 @@
       rs: rs,
       style: st,
       vPad: vPad,
-      maxWidth: svgW
+      maxWidth: svgW, widthPercent: config.headerTextWidth
     });
 
-    var gridTop = header.height || rs.marginTop;
+    var gridTop = R.computePlotTop(rs, header);
 
     // ── Auto-layout grid (Figma-style: content-first sizing)
     var availW = svgW - marginLeft - marginRight;
     var sepW = showSeps ? 1 : 0;
 
-    var lineH     = Math.round(figureSize * 1.3);
     var headLineH = Math.round(headingSize * 1.15);
     var bodyLineH = Math.round(bodySize * 1.4);
 
@@ -95,20 +88,40 @@
     if (numCols > data.length) numCols = data.length;
     if (numCols < 1) numCols = 1;
 
-    // Cell width: user-set or auto (30% cap)
+    // Cell width — content-driven (Auto) or fixed (Manual).
+    //
+    // Auto mode (default): each cell is just wide enough to fit its
+    // widest content (the figure, in practice — headings and body
+    // wrap). The minimum is 120 px so cells don't collapse for tiny
+    // single-character figures. Cells pack from x=0; the right side
+    // of the canvas stays empty when there are few cells. With many
+    // cells, the natural width is capped to fit the canvas.
+    //
+    // Manual mode (kfAutoWidth=false): user picks cellW directly via
+    // the slider; the renderer respects it verbatim.
     var totalGapSpace = (numCols - 1) * (unitGap + sepW);
     var cellW;
     if (config.kfAutoWidth !== false) {
-      // Auto: fill available space evenly
-      var naturalCellW = (availW - totalGapSpace) / numCols;
-      cellW = Math.round(naturalCellW);
+      // Find the widest figure across all cells (figures use
+      // fonts.heading bold; the heading and body wrap within cellW).
+      var maxFigW = 0;
+      for (var fi = 0; fi < data.length; fi++) {
+        var fStr = typeof data[fi].value === "number"
+          ? R.formatNumber(data[fi].value, config.numFmt)
+          : String(data[fi].value || "");
+        var w = fStr.length * figureSize * R.HEADING_BOLD_ADVANCE;
+        if (w > maxFigW) maxFigW = w;
+      }
+      var idealCellW = Math.max(120, Math.ceil(maxFigW + padH * 2 + iconColW));
+      // Cap at canvas-fit so cells never overflow when there are many
+      var stretchCellW = Math.floor((availW - totalGapSpace) / numCols);
+      cellW = Math.min(idealCellW, stretchCellW);
     } else {
       cellW = config.kfColWidth || 150;
     }
 
-    // Center the grid
-    var actualGridW = numCols * cellW + totalGapSpace;
-    var gridOffsetX = (actualGridW < availW) ? Math.round((availW - actualGridW) / 2) : 0;
+    // Flush-left: first cell at x=0, no centering offset.
+    var gridOffsetX = 0;
 
     var numRows = Math.ceil(data.length / numCols);
 
@@ -123,16 +136,19 @@
       var h = 0;
       // Key figure (may wrap)
       var figStr = typeof data[hi2].value === "number" ? R.formatNumber(data[hi2].value, config.numFmt) : String(data[hi2].value || "");
-      var fLines = R.wrapText ? R.wrapText(figStr, figureSize, textAreaW, 0.6).length : 1;
+      // Figure: bold Roboto regular (fonts.heading)
+      var fLines = R.wrapText ? R.wrapText(figStr, figureSize, textAreaW, R.HEADING_BOLD_ADVANCE).length : 1;
       h += figureSize + (fLines - 1) * figLineH2;
       // Gap + heading
       h += Math.round(headingSize * 0.4);
-      var hLines = R.wrapText ? R.wrapText(data[hi2].label || "", headingSize, textAreaW, 0.55).length : 1;
+      // Heading: Roboto Condensed (fonts.label)
+      var hLines = R.wrapText ? R.wrapText(data[hi2].label || "", headingSize, textAreaW, R.LABEL_ADVANCE).length : 1;
       h += hLines * headLineH;
       // Gap + body
       if (data[hi2].body) {
         h += Math.round(bodySize * 0.3);
-        var bLines = R.wrapText ? R.wrapText(data[hi2].body, bodySize, textAreaW, 0.55).length : 1;
+        // Body: Roboto Condensed (fonts.label)
+        var bLines = R.wrapText ? R.wrapText(data[hi2].body, bodySize, textAreaW, R.LABEL_ADVANCE).length : 1;
         h += bLines * bodyLineH;
       }
       if (h > maxContentH) maxContentH = h;
@@ -146,8 +162,11 @@
     }
 
     // ── Build SVG body
+    // Shift the grid LEFT by padH so the first cell's text content
+    // (which is inset by padH inside its cell) lines up with x=0,
+    // perceptually flush with the title.
     var body = [];
-    body.push('  <g transform="translate(' + (marginLeft + gridOffsetX) + ',' + gridTop + ')">');
+    body.push('  <g transform="translate(' + (marginLeft + gridOffsetX - padH) + ',' + gridTop + ')">');
 
     for (var i = 0; i < data.length; i++) {
       var col = i % numCols;
@@ -190,7 +209,7 @@
       var ty = padV;
 
       // Key figure (large, bold, wrapped)
-      var figWrapped = R.wrapText ? R.wrapText(figText, figureSize, wrapW, 0.6) : [figText];
+      var figWrapped = R.wrapText ? R.wrapText(figText, figureSize, wrapW, R.HEADING_BOLD_ADVANCE) : [figText];
       for (var fwi = 0; fwi < figWrapped.length; fwi++) {
         ty += (fwi === 0) ? figureSize : figLineH;
         body.push('      <text x="' + textX + '" y="' + ty +
@@ -201,7 +220,7 @@
 
       // Heading (wrapped)
       ty += Math.round(headingSize * 0.4);
-      var headWrapped = R.wrapText ? R.wrapText(headText, headingSize, wrapW, 0.55) : [headText];
+      var headWrapped = R.wrapText ? R.wrapText(headText, headingSize, wrapW, R.LABEL_ADVANCE) : [headText];
       for (var hwi = 0; hwi < headWrapped.length; hwi++) {
         ty += headLineH;
         body.push('      <text x="' + textX + '" y="' + ty +
@@ -213,7 +232,7 @@
       // Body (wrapped)
       if (bodyText) {
         ty += Math.round(bodySize * 0.3);
-        var bodyWrapped = R.wrapText ? R.wrapText(bodyText, bodySize, wrapW, 0.55) : [bodyText];
+        var bodyWrapped = R.wrapText ? R.wrapText(bodyText, bodySize, wrapW, R.LABEL_ADVANCE) : [bodyText];
         for (var bwi = 0; bwi < bodyWrapped.length; bwi++) {
           ty += bodyLineH;
           body.push('      <text x="' + textX + '" y="' + ty +
@@ -244,17 +263,17 @@
 
     body.push('  </g>');
 
-    // ── Footer
+    // ── Footer (gap added by computeFooterStart only when footer has text)
     var gridH = numRows * cellH + (numRows - 1) * unitGap;
-    var footerStartY = gridTop + gridH;
+    var footerStartY = R.computeFooterStart(rs, gridTop + gridH, !!config.footer);
     var footer = R.renderFooter({
-      x: marginLeft,
+      x: 0,
       startY: footerStartY,
       footer: config.footer,
       rs: rs,
       style: st,
       vPad: vPad,
-      maxWidth: svgW
+      maxWidth: svgW, widthPercent: config.footerTextWidth
     });
 
     for (var fi = 0; fi < footer.svg.length; fi++) body.push(footer.svg[fi]);

@@ -1,8 +1,10 @@
 /**
- * Vertical Bar Chart Renderer — v9
+ * Vertical Bar Chart Renderer
  *
- * v9 changes: Roboto fonts, shared header/footer, vertical padding, style colors.
- * v10: inline icon/flag column support.
+ * Each row → one column whose height encodes its value. Category
+ * labels sit below the columns and wrap to 3 lines (rotating to -45°
+ * when even wrapped labels would overlap). Optional inline icon or
+ * flag above each column.
  */
 
 /* global ChartRegistry */
@@ -18,8 +20,13 @@
     var ctx = R.initRender(config);
     var svgW = ctx.svgW, rs = ctx.rs, vPad = ctx.vPad, st = ctx.st, fonts = ctx.fonts;
 
+    // marginLeft starts at 0 (flush-left). It may grow below if the
+    // longest x-axis label is wider than its column — we need a small
+    // left pad so the FIRST column's centred label doesn't clip the
+    // canvas left edge. The leftmost visible element (the label) still
+    // sits at x ≈ 0 — just the COLUMN moves a little to the right.
     var marginRight = rs.marginRight;
-    var marginLeft = rs.marginLeft;
+    var marginLeft = 0;
 
     // Icon column
     var hasIcons = config.iconColType && config.iconColType !== "none";
@@ -30,16 +37,11 @@
     // Area normalization: max height varies due to different aspect ratios
     var iconMaxH = hasIcons ? R.maxIconHeight(data, iconSize, iconNorm) : 0;
 
-    // Bottom margin: extra space if labels rotate, plus icon space
     var rotateLabels = data.length > rs.labelRotateThreshold;
-    var marginBottom = rotateLabels ? Math.max(rs.marginBottom * 3, 55) : Math.max(rs.marginBottom * 2, 35);
-    if (iconMaxH > 0) {
-      marginBottom += iconMaxH + iconGap;
-    }
 
     // Header
     var header = R.renderHeader({
-      x: marginLeft,
+      x: 0,
       startY: 6,
       title: title,
       subtitle: config.subtitle,
@@ -47,31 +49,104 @@
       rs: rs,
       style: st,
       vPad: vPad,
-      maxWidth: svgW
+      maxWidth: svgW,
+      widthPercent: config.headerTextWidth
     });
 
-    // ── FORK PATCH (online tool): reserve room above the plot for the
-    // value label that sits above each bar (mode "outside"). Without this
-    // the label above the tallest bar gets clipped above the SVG.
-    var topLabelReserveV = (config.barLabelMode === "none" || config.barLabelMode === "inside")
-      ? 0
-      : Math.ceil(rs.valueSize + 6);
-    var plotTop = (header.height || (rs.marginTop + 4)) + topLabelReserveV;
+    var plotTop = R.computePlotTop(rs, header);
 
     // Plot area
     var plotWidth = svgW - marginLeft - marginRight;
+
+    // Pre-compute step (the column-to-column distance) so we can
+    // pre-wrap x-axis labels against it BEFORE we know marginBottom —
+    // the margin needs to grow when labels wrap to multiple lines.
+    //
+    // Step grows in two situations:
+    //   - The bar+gap default is wider than the longest single word
+    //     across all labels (typical case)
+    //   - A label has a single word wider than bar+gap (e.g. month
+    //     names, long region names): step expands to the widest word
+    //     + small padding so labels don't overflow into neighbours
+    //
+    // If even at minStep the chart is too wide, we fall back to a
+    // stretched layout (and labels will likely tilt or fade).
+    var prewrapBarW = config.barThickness && config.barThickness > 0
+      ? config.barThickness
+      : rs.barThickness;
+
+    // Find the widest single word — this is the minimum step needed
+    // to render labels horizontally without word-level overflow.
+    var widestWordW = 0;
+    if (!rotateLabels) {
+      for (var ww = 0; ww < data.length; ww++) {
+        var words = String(data[ww].label || "").split(/\s+/);
+        for (var wi = 0; wi < words.length; wi++) {
+          var wW = words[wi].length * rs.labelSize * R.LABEL_ADVANCE;
+          if (wW > widestWordW) widestWordW = wW;
+        }
+      }
+    }
+    // User-configurable bar spacing — overrides the responsive default
+    // when > 0. Applied as the inter-column gap; the step still grows
+    // beyond it if a wider step is needed to fit labels.
+    var effBarGap = (config.barSpacing && config.barSpacing > 0) ? config.barSpacing : rs.barGap;
+    var idealStep = prewrapBarW + effBarGap;
+    var minStepForLabels = Math.ceil(widestWordW + 12);
+    var prewrapStep = Math.max(idealStep, minStepForLabels);
+    // Left pad — shift the plot right so the FIRST column's centred
+    // label doesn't extend past the canvas left edge. Without this,
+    // a 36-px label centred on a 24-px-wide column at x=0 would clip
+    // its first 6 px. The leftmost VISIBLE pixel (the label's left
+    // edge) still ends up at x=0 — just the column is slightly inset.
+    if (!rotateLabels && widestWordW > prewrapBarW) {
+      marginLeft = Math.ceil((widestWordW - prewrapBarW) / 2);
+      plotWidth = svgW - marginLeft - marginRight;
+    }
+    // Cap step at the plot width: if even the min-step layout overflows,
+    // stretch evenly across plotWidth (labels may still wrap or fade).
+    if (data.length > 1) {
+      var stretchStep = (plotWidth - prewrapBarW) / (data.length - 1);
+      if (prewrapStep > stretchStep) prewrapStep = stretchStep;
+    }
+
+    // Pre-wrap each label into up to 3 lines that fit within step.
+    // Stash for the render loop and capture the max line count so
+    // marginBottom reserves enough vertical room.
+    var labelWraps = [];
+    var maxLabelLines = 1;
+    if (!rotateLabels) {
+      var wrapMaxW = Math.max(40, prewrapStep - 4);
+      for (var pw = 0; pw < data.length; pw++) {
+        var lw = R.wrapToFit(String(data[pw].label || ""),
+          rs.labelSize, wrapMaxW, 3, R.LABEL_ADVANCE);
+        labelWraps.push(lw);
+        if (lw.lines.length > maxLabelLines) maxLabelLines = lw.lines.length;
+      }
+    }
+
+    // Content-aware bottom margin: rotated → single-line extent;
+    // horizontal → reserves room for the actual wrapped line count.
+    // Plus the icon row when icons are configured.
+    var marginBottom = R.measureXAxisLabelBudget(data, rs, rotateLabels, maxLabelLines);
+    if (iconMaxH > 0) {
+      marginBottom += iconMaxH + iconGap;
+    }
+
     var plotHeight = config.height ? (config.height - plotTop - marginBottom) : rs.defaultPlotHeight;
 
-    // Footer
-    var footerStartY = plotTop + plotHeight + marginBottom;
+    // Footer — plot bottom = chart baseline + the label/icon row (marginBottom).
+    // computeFooterStart adds the breakpoint gap only when footer has text.
+    var footerStartY = R.computeFooterStart(rs, plotTop + plotHeight + marginBottom, !!config.footer);
     var footer = R.renderFooter({
-      x: marginLeft,
+      x: 0,
       startY: footerStartY,
       footer: config.footer,
       rs: rs,
       style: st,
       vPad: vPad,
-      maxWidth: svgW
+      maxWidth: svgW,
+      widthPercent: config.footerTextWidth
     });
 
     var svgH = config.height || (footerStartY + footer.height);
@@ -83,9 +158,15 @@
     }
     if (maxVal === 0) maxVal = 1;
 
-    var scale = R.niceScale(0, maxVal, rs.maxTicks);
+    // User-fixed scale anchor takes precedence over nice-rounded auto max.
+    // Skips niceScale so two comparison charts match their typed number exactly.
+    var scale;
+    if (config.axisMax != null && config.axisMax > 0) {
+      scale = { min: 0, max: config.axisMax };
+    } else {
+      scale = R.niceScale(0, maxVal, rs.maxTicks);
+    }
     var yScale = R.linearScale(0, scale.max, plotHeight, 0);
-    var band = R.bandScale(data.length, 0, plotWidth, 0.25);
 
     var barColor = config.colors[0];
 
@@ -99,34 +180,60 @@
 
     // No gridlines — direct labelling provides values
 
-    // Bar width: use barThickness override or default band width
-    var barW = band.bandwidth;
-    if (config.barThickness && config.barThickness > 0) {
-      barW = Math.min(config.barThickness, band.step - 2);
+    // Content-driven horizontal layout.
+    //
+    // Each column is rs.barThickness wide (or the user's override) with
+    // rs.barGap between columns, packed from x=0. The right side of the
+    // canvas stays empty when there are few columns — same composition
+    // rule as the rest of the chart engine (leftmost element at x=0,
+    // unused space on the right). When the data has too many columns
+    // to fit at the natural step, we fall back to stretching across
+    // plotWidth and capping bar width so columns don't overlap.
+    var barW = config.barThickness && config.barThickness > 0
+      ? config.barThickness
+      : rs.barThickness;
+    // Use the prewrap-time step computed above — it already accounts
+    // for both the barW + barGap minimum AND the widest-word minimum
+    // (so labels never overflow into adjacent columns), capped by the
+    // plot width fallback. If it produced a step narrower than the
+    // bar itself (extreme density), shrink barW to keep columns from
+    // overlapping.
+    var step = prewrapStep;
+    if (data.length > 1 && step < barW + 2) {
+      barW = Math.max(2, step - 2);
     }
-    var barOffset = (band.bandwidth - barW) / 2;
 
     // Bars
     for (var j = 0; j < data.length; j++) {
-      var x = band.position(j) + barOffset;
-      var barH = plotHeight - yScale(data[j].value);
+      var x = j * step;
+      var val = data[j].value;
+      var barH = plotHeight - yScale(val);
       var y = plotHeight - barH;
 
-      svg.push('    <rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) +
-        '" width="' + barW.toFixed(1) + '" height="' + Math.max(1, barH).toFixed(1) +
-        '" fill="' + barColor + '"/>');
+      // Zero value → no bar. Keep the x-axis label, keep the "0" value
+      // label above the baseline, but skip the rect so the reader
+      // doesn't see a misleading 1px sliver at the baseline.
+      if (val !== 0) {
+        svg.push('    <rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) +
+          '" width="' + barW.toFixed(1) + '" height="' + Math.max(1, barH).toFixed(1) +
+          '" fill="' + barColor + '"/>');
+      }
 
-      // Value label
+      // Value label — suppressed when value is 0 and user ticked
+      // "Hide 0 value labels" in the Design tab.
       var lblMode = config.barLabelMode || "outside";
-      if (lblMode === "outside") {
-        svg.push('    <text x="' + (x + barW / 2).toFixed(1) + '" y="' + (y - 4).toFixed(1) +
-          '" font-family="' + fonts.value + '" font-size="' + rs.valueSize +
-          '" fill="' + st.valueColor + '" text-anchor="middle">' + R.formatNumber(data[j].value, config.numFmt) + '</text>');
-      } else if (lblMode === "inside") {
-        var insY = Math.min(y + barH - 4, plotHeight - 4);
-        svg.push('    <text x="' + (x + barW / 2).toFixed(1) + '" y="' + insY.toFixed(1) +
-          '" font-family="' + fonts.value + '" font-size="' + rs.valueSize +
-          '" fill="' + (config.labelColor || "#ffffff") + '" text-anchor="middle">' + R.formatNumber(data[j].value, config.numFmt) + '</text>');
+      var hideThisLabel = config.hideZeroLabels && val === 0;
+      if (!hideThisLabel) {
+        if (lblMode === "outside") {
+          svg.push('    <text x="' + (x + barW / 2).toFixed(1) + '" y="' + (y - 4).toFixed(1) +
+            '" font-family="' + fonts.value + '" font-size="' + rs.valueSize +
+            '" fill="' + st.valueColor + '" text-anchor="middle">' + R.formatNumber(val, config.numFmt) + '</text>');
+        } else if (lblMode === "inside") {
+          var insY = Math.min(y + barH - 4, plotHeight - 4);
+          svg.push('    <text x="' + (x + barW / 2).toFixed(1) + '" y="' + insY.toFixed(1) +
+            '" font-family="' + fonts.value + '" font-size="' + rs.valueSize +
+            '" fill="' + (config.labelColor || "#ffffff") + '" text-anchor="middle">' + R.formatNumber(val, config.numFmt) + '</text>');
+        }
       }
 
       // Icon above label (between bar and label) — centered on bar width
@@ -140,21 +247,51 @@
         svg.push('    ' + R.buildIconGroup(data[j]._iconSvg, iconSize, icoX, icoY, icoColor, iconNorm));
       }
 
-      // X-axis label (at very bottom, below icon)
+      // X-axis label (at very bottom, below icon).
+      // Two render modes:
+      //   - Rotated (when rs.labelRotateThreshold is exceeded): single
+      //     line at -45°. Long labels get the last chars chopped + "…"
+      //     and rendered in faded grey.
+      //   - Horizontal: wrapped to up to 3 lines that fit within the
+      //     column's step width. Same fade/warn behaviour on overflow.
       var labelY = iconMaxH > 0
         ? (iconBottomY + iconMaxH + iconGap + rs.labelSize)
         : (plotHeight + rs.labelSize + 4);
-      var label = R.truncate(data[j].label, rs.maxLabelChars);
 
       if (rotateLabels) {
+        // Rotated: single-line, truncate with ellipsis only if extremely
+        // long. We allow a generous max because the rotated label has
+        // room along the diagonal.
+        var rotMaxChars = rs.maxLabelChars * 2;
+        var rotText = String(data[j].label || "");
+        var rotTruncated = rotText.length > rotMaxChars;
+        if (rotTruncated) rotText = rotText.substring(0, rotMaxChars - 1) + "…";
+        var rotColor = rotTruncated ? R.FADED_LABEL_COLOR : st.labelColor;
+        if (rotTruncated) {
+          R.pushWarning("label-truncated", { count: 1,
+            suggestion: "Try a wider chart or shorter category labels" });
+        }
         svg.push('    <text x="' + labelX.toFixed(1) + '" y="' + labelY.toFixed(1) +
           '" font-family="' + fonts.label + '" font-size="' + rs.labelSize +
-          '" fill="' + st.labelColor + '" text-anchor="end" transform="rotate(-45,' + labelX.toFixed(1) + ',' + labelY.toFixed(1) + ')">' +
-          R.escapeXml(label) + '</text>');
+          '" fill="' + rotColor + '" text-anchor="end" transform="rotate(-45,' + labelX.toFixed(1) + ',' + labelY.toFixed(1) + ')">' +
+          R.escapeXml(rotText) + '</text>');
       } else {
-        svg.push('    <text x="' + labelX.toFixed(1) + '" y="' + labelY.toFixed(1) +
-          '" font-family="' + fonts.label + '" font-size="' + rs.labelSize +
-          '" fill="' + st.labelColor + '" text-anchor="middle">' + R.escapeXml(label) + '</text>');
+        // Horizontal: use the pre-wrapped lines (from the labelWraps
+        // pass above) so marginBottom already reflects the line count.
+        var wrap = labelWraps[j];
+        if (!wrap.fits) {
+          R.pushWarning("label-truncated", { count: 1,
+            suggestion: "Try a wider chart or shorter category labels" });
+        }
+        var wrapColor = wrap.truncated ? R.FADED_LABEL_COLOR : st.labelColor;
+        var wrapLines = wrap.lines.length ? wrap.lines : [""];
+        var lineH = Math.round(rs.labelSize * 1.2);
+        for (var ln = 0; ln < wrapLines.length; ln++) {
+          svg.push('    <text x="' + labelX.toFixed(1) + '" y="' + (labelY + ln * lineH).toFixed(1) +
+            '" font-family="' + fonts.label + '" font-size="' + rs.labelSize +
+            '" fill="' + wrapColor + '" text-anchor="middle">' +
+            R.escapeXml(wrapLines[ln]) + '</text>');
+        }
       }
     }
 

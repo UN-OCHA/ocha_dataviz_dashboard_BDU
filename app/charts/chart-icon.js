@@ -1,10 +1,3 @@
-/* ──────────────────────────────────────────────────────────────────
- * TEMPORARY FORK from ocha_dataviz_plugin v2026.0.2 (Phase 1 beta).
- * This file will be consolidated into ../shared/ during Phase 0 once
- * the online tool is validated. If you fix a bug here, apply the
- * same fix to the plugin copy in ocha_dataviz_plugin/client/.
- * ────────────────────────────────────────────────────────────────── */
-
 /**
  * Icon Chart Renderer (pictogram / isotype)
  *
@@ -92,12 +85,13 @@
     var iconSize = config.iconSize || 20;
     var defaultShape = config.iconShape || "people";
     var rowIcons = config.rowIcons || null; // per-row icon shapes
-    var marginLeft = rs.marginLeft * 0.5;
+    // Flush-left: first icon's left edge at x=0
+    var marginLeft = 0;
     var marginRight = rs.marginRight * 0.5;
 
     // Header
     var header = R.renderHeader({
-      x: marginLeft,
+      x: 0,
       startY: 6,
       title: title,
       subtitle: config.subtitle,
@@ -105,10 +99,10 @@
       rs: rs,
       style: st,
       vPad: vPad,
-      maxWidth: svgW
+      maxWidth: svgW, widthPercent: config.headerTextWidth
     });
 
-    var plotTop = header.height || rs.marginTop;
+    var plotTop = R.computePlotTop(rs, header);
     var plotWidth = svgW - marginLeft - marginRight;
 
     // Resolve per-row icons
@@ -208,22 +202,24 @@
             (legendY + swatchSize * 0.8) +
             '" font-family="' + fonts.label + '" font-size="' + lFontSize +
             '" fill="' + st.labelColor + '">' + R.escapeXml(legendNames[li3]) + '</text>');
-          lx += swatchSize + lgap + legendNames[li3].length * lFontSize * 0.55 + lgap * 3;
+          // Legend text renders in fonts.label (Roboto Condensed)
+          lx += swatchSize + lgap + legendNames[li3].length * lFontSize * R.LABEL_ADVANCE + lgap * 3;
         }
         legendH = swatchSize + Math.round(8 * vPad);
       }
     }
 
-    // Footer
-    var footerStartY = plotTop + gridH + legendH + Math.round(8 * vPad);
+    // Footer — gap added by computeFooterStart only when footer has text.
+    // Plot bottom = plotTop + gridH + legendH (the icon grid + optional legend).
+    var footerStartY = R.computeFooterStart(rs, plotTop + gridH + legendH, !!config.footer);
     var footer = R.renderFooter({
-      x: marginLeft,
+      x: 0,
       startY: footerStartY,
       footer: config.footer,
       rs: rs,
       style: st,
       vPad: vPad,
-      maxWidth: svgW
+      maxWidth: svgW, widthPercent: config.footerTextWidth
     });
 
     var svgH = config.height || (footerStartY + footer.height + rs.marginBottom);

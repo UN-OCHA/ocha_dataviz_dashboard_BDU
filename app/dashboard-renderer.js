@@ -242,7 +242,12 @@ var DashboardRenderer = (function () {
     // IMPORTANT: pass empty title — chart-card renders the title in HTML.
     var emptyTitle = "";
 
-    if (chart.type === "stacked-bar" || chart.type === "stacked-col") {
+    if (chart.type === "stacked-bar" || chart.type === "stacked-col" ||
+        chart.type === "cluster" || chart.type === "cluster-donut") {
+      // All four chart types share the same reshaped wire format
+      // [{label, values}] + a parallel seriesNames array. The chart
+      // engine's renderer for each type knows how to interpret the
+      // values (stacked vs grouped vs small-multiples).
       shaped = reshapeStacked(data, iconColType);
       config.seriesNames = shaped.seriesNames;
       if (needsFixedBands) {
