@@ -32,7 +32,7 @@ Treat any edit that touches one of these as a cross-tool flag:
   - OCHA blue `#009EDB` and dark `#007BB0`
   - HNRP orange `#F58220`
   - Flash Appeal red
-  - GHO gold
+  - GHO yellow
   - Any change to these hex values, the variable names, or the style IDs.
 - **Style identifiers**
   - The string keys `ocha`, `hnrp`, `flash`, `gho`. Renaming, adding, or
